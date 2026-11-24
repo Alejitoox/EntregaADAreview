@@ -1,27 +1,27 @@
 {
-  "name": "figma-make-app",
+  "name": "complex-schedule",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "format": "oxfmt"
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "format": "oxfmt",
+    "test:level-zero": "docker compose up -d --wait db && node --experimental-strip-types --test tests/level-zero.test.mjs tests/level-zero-input.test.mjs"
   },
   "dependencies": {
+    "next": "^16.4.6",
+    "pg": "^8.23.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^6.0.0",
-    "tailwindcss": "^4.0.0",
-    "@tailwindcss/vite": "^4.0.0",
     "oxfmt": "^0.76.0",
-    "typescript": "^5.7.0",
-    "vite": "^8.1.7"
+    "typescript": "^5.7.0"
   }
 }
