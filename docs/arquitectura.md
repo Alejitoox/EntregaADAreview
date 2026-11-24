@@ -2,33 +2,35 @@
 
 ## Límites de cada capa
 
-- **Presentación (`src/App.tsx`)**: recibe acciones y muestra horarios. No
-  implementa reglas de compatibilidad ni consultas SQL.
-- **Aplicación (`src/application`)**: coordina casos de uso, como generar
-  horarios para varios usuarios.
+- **Presentación (`src/components`, `app/`)**: Next.js App Router muestra el
+  flujo y consume rutas HTTP. No implementa reglas de compatibilidad ni SQL.
+- **Aplicación (`src/application`)**: convierte el JSON del proyecto al modelo
+  de dominio y coordina la generación del nivel cero.
 - **Dominio (`src/domain`)**: contiene los tipos y algoritmos puros de
   restricciones. No depende de React, Docker ni PostgreSQL.
-- **Infraestructura (`database`)**: define el esquema y los datos locales de
-  PostgreSQL en Docker.
+- **Infraestructura (`src/infrastructure/postgres`, `database`)**: encapsula el
+  pool de PostgreSQL, el esquema, las migraciones y los datos de desarrollo.
 
-La capa de aplicación ejecuta el algoritmo de dominio de forma independiente
-para cada usuario seleccionado. Así, los traslapes se revisan en el horario de
-cada persona; los horarios de dos usuarios distintos no generan conflictos
-entre sí.
+La interfaz permite seleccionar un usuario propietario y varios participantes.
+El resultado de nivel cero se calcula para el estudiante del JSON de entrada;
+los participantes se asocian al horario guardado y pueden consultarlo desde su
+selector local. Cada resultado conserva tanto el horario generado como el JSON
+de origen para que futuras etapas puedan volver a procesarlo.
 
 ## Relación entre usuarios y horarios
 
-`app_user` registra las cuentas de la aplicación. `user_schedule` registra el
-horario compartible y su creador. `schedule_participant` permite agregar varios
-usuarios al mismo horario. `schedule_section_assignment` guarda la sección
-elegida por usuario y por curso, de modo que cada participante conserva su
-propio resultado dentro del horario compartido.
+`app_user` registra usuarios locales de desarrollo. `user_schedule` registra
+el resultado JSON, el archivo JSON de origen, el nivel alcanzado y su creador.
+`schedule_participant` permite agregar varios usuarios al horario compartido.
+La API inserta el horario y sus participantes dentro de una sola transacción.
+`schedule_section_assignment` se conserva para escenarios normalizados de
+prueba y el trabajo futuro con selecciones independientes por participante.
 
 Las versiones de catálogo viven en `catalog_dataset`. Los casos con cantidad
 esperada de horarios viven aparte en `level_zero_test_case`, para que los datos
 de verificación no formen parte del modelo de horarios de la aplicación.
 
 El esquema y los dos usuarios de ejemplo son locales para desarrollo. La
-integración de autenticación, API y persistencia de la interfaz se conectará en
-una capa de infraestructura posterior; el navegador no se conecta directamente
-a PostgreSQL.
+interfaz usa la API de Next.js; las rutas de servidor son las únicas que abren
+conexiones PostgreSQL. El selector local no representa autenticación real, que
+se integrará en una etapa posterior.

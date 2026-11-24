@@ -7,9 +7,12 @@ CREATE TABLE app_user (
 
 CREATE TABLE user_schedule (
     schedule_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    dataset_id TEXT NOT NULL REFERENCES catalog_dataset(dataset_id),
+    dataset_id TEXT REFERENCES catalog_dataset(dataset_id),
     created_by_user_id TEXT NOT NULL REFERENCES app_user(user_id),
     title TEXT NOT NULL,
+    algorithm_level SMALLINT NOT NULL DEFAULT 0 CHECK (algorithm_level >= 0),
+    generated_schedule JSONB NOT NULL DEFAULT '{}'::JSONB,
+    source_json JSONB NOT NULL DEFAULT '{}'::JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (schedule_id, dataset_id)
 );

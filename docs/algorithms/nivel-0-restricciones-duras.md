@@ -21,8 +21,10 @@ solución elige exactamente una sección por curso y no elige dos vértices unid
 por una arista.
 
 Una sección cuyas propias sesiones se cruzan se excluye antes de construir el
-grafo. En esta entrega, el día debe llegar como identificador canónico y las
-horas como minutos enteros desde la medianoche.
+grafo. La capa de aplicación adapta el JSON del proyecto (`catalogo.grupos` y
+`estudiante.materias`) a este modelo. Acepta días en español o numéricos y
+horas en minutos o como texto `HH:mm`; el dominio recibe días canónicos y
+minutos enteros.
 
 ## Grafo de conflictos
 
@@ -108,15 +110,16 @@ secciones tenga cada horario.
 volumen: opciones sin cruces (4 horarios), conflicto inevitable (0 horarios) y
 cruce anidado con sesiones contiguas (6 horarios). La prueba consulta esos
 registros y compara el resultado del generador con el conteo esperado; también
-comprueba que ningún horario devuelto tenga traslapes.
+comprueba que ningún horario devuelto tenga traslapes. La ruta de Next
+`/api/generate` adapta el JSON real y llama al mismo generador.
 
 Ejecuta `pnpm test:level-zero` con Docker Desktop disponible. El servicio y los
 datos quedan en el volumen local `postgres_data`.
 
-## Límite de esta entrega
+## Persistencia local y participantes
 
-El prototipo aún no define el esquema del JSON de entrada ni conecta la carga
-de archivos con el generador. Este módulo recibe cursos y secciones ya
-normalizados; conectar el contrato real del JSON será parte de integrar el
-algoritmo con la pantalla de carga. PostgreSQL almacena los escenarios de
-verificación y aún no es la persistencia de la aplicación.
+Las rutas `/api/users` y `/api/schedules` consultan PostgreSQL en el servidor.
+Al guardar, una transacción inserta el resultado JSON, el JSON de origen, el
+nivel y el propietario junto con los participantes seleccionados. Los usuarios
+de esta etapa son datos de desarrollo; el selector no ofrece autenticación y no
+debe exponerse como tal. Supabase Auth queda para una etapa posterior.
