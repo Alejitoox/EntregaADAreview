@@ -11,7 +11,26 @@ export async function GET(request: Request) {
   try {
     const { rows } = await pool.query(
       `SELECT s.schedule_id AS id, s.title, s.algorithm_level AS level,
-              s.generated_schedule AS schedule, s.source_json AS source_json,
+              CASE WHEN s.generated_schedule ? 'courses' THEN s.generated_schedule
+                ELSE jsonb_build_object('name', s.title, 'courses', COALESCE((
+                  SELECT jsonb_agg(jsonb_build_object(
+                    'courseId', a.course_id,
+                    'sectionId', a.section_id,
+                    'meetings', COALESCE((
+                      SELECT jsonb_agg(jsonb_build_object(
+                        'day', m.day_of_week::text,
+                        'startMinute', m.start_minute,
+                        'endMinute', m.end_minute
+                      ) ORDER BY m.day_of_week, m.start_minute)
+                      FROM section_meeting m
+                      WHERE (m.dataset_id, m.course_id, m.section_id) =
+                            (a.dataset_id, a.course_id, a.section_id)
+                    ), '[]'::jsonb)
+                  ) ORDER BY a.course_id)
+                  FROM schedule_section_assignment a
+                  WHERE a.schedule_id = s.schedule_id AND a.user_id = $1
+                ), '[]'::jsonb))
+              END AS schedule, s.source_json AS source_json,
               s.created_at AS created_at, owner.full_name AS owner_name,
               COALESCE(jsonb_agg(jsonb_build_object(
                 'id', participant.user_id,
@@ -46,18 +65,34 @@ export async function POST(request: Request) {
   } | null;
 
   if (
-    !body || typeof body.ownerUserId !== "string" || !Array.isArray(body.participantIds) ||
-    typeof body.title !== "string" || !body.title.trim() ||
-    body.sourceJson === undefined || body.schedule === undefined ||
-    !Number.isInteger(body.level) || Number(body.level) < 0
+    !body ||
+    typeof body.ownerUserId !== "string" ||
+    !Array.isArray(body.participantIds) ||
+    typeof body.title !== "string" ||
+    !body.title.trim() ||
+    body.sourceJson === undefined ||
+    body.schedule === undefined ||
+    !Number.isInteger(body.level) ||
+    Number(body.level) < 0
   ) {
-    return NextResponse.json({ error: "Faltan datos válidos para guardar el horario." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Faltan datos válidos para guardar el horario." },
+      { status: 400 },
+    );
   }
 
   const ownerUserId = body.ownerUserId;
-  const participantIds = [...new Set(body.participantIds.filter((id): id is string => typeof id === "string"))];
-  if (participantIds.length !== body.participantIds.length || participantIds.includes(ownerUserId)) {
-    return NextResponse.json({ error: "Revisa la lista de participantes seleccionados." }, { status: 400 });
+  const participantIds = [
+    ...new Set(body.participantIds.filter((id): id is string => typeof id === "string")),
+  ];
+  if (
+    participantIds.length !== body.participantIds.length ||
+    participantIds.includes(ownerUserId)
+  ) {
+    return NextResponse.json(
+      { error: "Revisa la lista de participantes seleccionados." },
+      { status: 400 },
+    );
   }
   const savedSchedule = body.schedule as GeneratedSchedule;
   if (!savedSchedule || !Array.isArray(savedSchedule.courses)) {
@@ -81,7 +116,13 @@ export async function POST(request: Request) {
          (created_by_user_id, title, algorithm_level, generated_schedule, source_json)
        VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)
        RETURNING schedule_id`,
-      [ownerUserId, body.title.trim(), body.level, JSON.stringify(savedSchedule), JSON.stringify(body.sourceJson)],
+      [
+        ownerUserId,
+        body.title.trim(),
+        body.level,
+        JSON.stringify(savedSchedule),
+        JSON.stringify(body.sourceJson),
+      ],
     );
     const scheduleId = inserted.rows[0].schedule_id;
     await client.query(
@@ -100,7 +141,10 @@ export async function POST(request: Request) {
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     console.error("No se pudo guardar el horario", error);
-    return NextResponse.json({ error: "No se pudo guardar el horario en PostgreSQL." }, { status: 503 });
+    return NextResponse.json(
+      { error: "No se pudo guardar el horario en PostgreSQL." },
+      { status: 503 },
+    );
   } finally {
     client.release();
   }

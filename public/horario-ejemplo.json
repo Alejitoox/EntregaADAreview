@@ -1,0 +1,60 @@
+{
+  "catalogo": {
+    "materias": [
+      { "id": "ALG", "nombre": "Análisis de algoritmos", "creditos": 4 },
+      { "id": "EST", "nombre": "Probabilidad y estadística", "creditos": 4 },
+      { "id": "SOF", "nombre": "Ingeniería de software", "creditos": 3 }
+    ],
+    "profesores": [{ "id": "P1", "nombre": "Docente de ejemplo" }],
+    "grupos": [
+      {
+        "id": "ALG-01",
+        "materiaId": "ALG",
+        "profesorId": "P1",
+        "cuposDisponibles": 20,
+        "inscritos": [],
+        "sesiones": [
+          { "dia": "Lunes", "inicio": 420, "fin": 540 },
+          { "dia": "Miércoles", "inicio": 420, "fin": 540 }
+        ]
+      },
+      {
+        "id": "ALG-02",
+        "materiaId": "ALG",
+        "profesorId": "P1",
+        "cuposDisponibles": 20,
+        "inscritos": [],
+        "sesiones": [
+          { "dia": "Lunes", "inicio": 540, "fin": 660 },
+          { "dia": "Miércoles", "inicio": 540, "fin": 660 }
+        ]
+      },
+      {
+        "id": "EST-01",
+        "materiaId": "EST",
+        "profesorId": "P1",
+        "cuposDisponibles": 20,
+        "inscritos": [],
+        "sesiones": [
+          { "dia": "Martes", "inicio": 540, "fin": 660 },
+          { "dia": "Jueves", "inicio": 540, "fin": 660 }
+        ]
+      },
+      {
+        "id": "SOF-01",
+        "materiaId": "SOF",
+        "profesorId": "P1",
+        "cuposDisponibles": 20,
+        "inscritos": [],
+        "sesiones": [{ "dia": "Viernes", "inicio": 780, "fin": 900 }]
+      }
+    ]
+  },
+  "estudiante": {
+    "materias": [
+      { "materiaId": "ALG", "prioridad": 1, "profesoresPreferidos": [] },
+      { "materiaId": "EST", "prioridad": 2, "profesoresPreferidos": [] },
+      { "materiaId": "SOF", "prioridad": 3, "profesoresPreferidos": [] }
+    ]
+  }
+}
