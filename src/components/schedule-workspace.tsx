@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
-  GeneratedSchedule,
-  PreparedLevelZero,
-} from "../application/scheduling/prepare-level-zero";
+  HorarioVista,
+  RespuestaGeneracion,
+} from "../application/scheduling/ejecutar-archivo";
+import type { ErrorValidacion } from "../domain/scheduling/modelo";
 
 type View = "auth" | "home" | "generated" | "saved" | "upload" | "calendar";
 type User = { id: string; name: string; email: string };
@@ -380,11 +381,15 @@ function Home({ setView, user }: { setView: (view: View) => void; user: User }) 
   );
 }
 
+/** Lo que se guarda y se dibuja de un horario; `HorarioVista` lo cumple completo. */
+type ScheduleData = Pick<HorarioVista, "name" | "courses"> &
+  Partial<Pick<HorarioVista, "materias" | "creditosTotales" | "omitidas" | "json" | "txt">>;
+
 type SavedSchedule = {
   id: string;
   title: string;
   level: number;
-  schedule: Partial<GeneratedSchedule>;
+  schedule: Partial<ScheduleData>;
   source_json: unknown;
   created_at: string;
   owner_name: string;
@@ -393,10 +398,62 @@ type SavedSchedule = {
 type ScheduleView = {
   title: string;
   level: number;
-  schedule: GeneratedSchedule;
+  schedule: ScheduleData;
   source: unknown;
 };
 type ValidatedFile = { name: string; source: unknown };
+
+/** Estado de la validación inmediata: lista completa de errores, agrupada por bloque. */
+type ValidationResponse = { valid: boolean; errores: ErrorValidacion[] };
+
+const BLOCK_TITLES: Record<string, string> = {
+  catalogo: "Bloque catalogo",
+  estudiante: "Bloque estudiante",
+  archivo: "Archivo",
+};
+
+function blockOf(error: ErrorValidacion) {
+  const root = error.ruta.split(/[.[]/)[0];
+  return root === "catalogo" || root === "estudiante" ? root : "archivo";
+}
+
+function ValidationErrors({ errors }: { errors: ErrorValidacion[] }) {
+  const groups = ["archivo", "catalogo", "estudiante"]
+    .map((block) => ({ block, items: errors.filter((error) => blockOf(error) === block) }))
+    .filter(({ items }) => items.length > 0);
+  return (
+    <section className="error-card" role="alert">
+      <h2>
+        {errors.length} {errors.length === 1 ? "error encontrado" : "errores encontrados"}
+      </h2>
+      <p>Corrige el archivo y vuelve a subirlo. No se puede ejecutar el algoritmo con errores.</p>
+      {groups.map(({ block, items }) => (
+        <div className="error-group" key={block}>
+          <h3>
+            {BLOCK_TITLES[block]} <span>({items.length})</span>
+          </h3>
+          <ul>
+            {items.map((error, index) => (
+              <li key={`${error.ruta}-${error.codigo}-${index}`}>
+                <div className="error-head">
+                  <code className="error-code">{error.codigo}</code>
+                  <code className="error-path">{error.ruta || "(raíz)"}</code>
+                </div>
+                <p>{error.mensaje}</p>
+                <dl>
+                  <dt>Se esperaba</dt>
+                  <dd>{error.esperado}</dd>
+                  <dt>Se encontró</dt>
+                  <dd>{error.encontrado ?? "—"}</dd>
+                </dl>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
+  );
+}
 
 function Upload({
   users,
@@ -426,17 +483,24 @@ function Upload({
   const [fileName, setFileName] = useState(file?.name ?? "");
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState("");
+  const [fileErrors, setFileErrors] = useState<ErrorValidacion[]>([]);
 
   async function chooseFile(name: string, read: () => Promise<unknown>) {
     const attempt = ++validation.current;
     setFileName(name);
     setValidating(true);
     setError("");
+    setFileErrors([]);
     onFileChange(null);
     try {
       const source = await read();
-      await post("/api/generate", { sourceJson: source, validateOnly: true });
-      if (attempt === validation.current) onFileChange({ name, source });
+      const report = await post<ValidationResponse>("/api/generate", {
+        sourceJson: source,
+        validateOnly: true,
+      });
+      if (attempt !== validation.current) return;
+      if (report.valid) onFileChange({ name, source });
+      else setFileErrors(report.errores);
     } catch (cause) {
       if (attempt === validation.current) setError(message(cause));
     } finally {
@@ -478,10 +542,12 @@ function Upload({
             event.currentTarget.value = "";
             if (!selected) return;
             void chooseFile(selected.name, async () => {
+              const text = await selected.text();
               try {
-                return JSON.parse(await selected.text());
+                return JSON.parse(text);
               } catch {
-                throw new Error("El archivo no contiene JSON válido.");
+                // El servidor informa la línea y la columna del error (JSON_MAL_FORMADO).
+                return text;
               }
             });
           }}
@@ -506,6 +572,7 @@ function Upload({
           {error}
         </p>
       )}
+      {fileErrors.length > 0 && <ValidationErrors errors={fileErrors} />}
       {file && (
         <>
           <section className="success-card" role="status">
@@ -571,6 +638,90 @@ function Upload({
   );
 }
 
+const CRITERION_LABELS: Record<string, string> = {
+  restriccionesDuras: "Restricciones duras",
+  prioridad: "Prioridad de materias",
+  creditos: "Créditos",
+  almuerzo: "Almuerzo libre",
+  huecos: "Huecos",
+  franja: "Franja horaria",
+  diasLibres: "Días libres",
+  profesor: "Profesor preferido",
+  amigos: "Amigos",
+};
+
+function criterionLabel(name: string) {
+  return CRITERION_LABELS[name] ?? name;
+}
+
+function ScheduleCards({
+  schedules,
+  source,
+  nivel,
+  savedIndices,
+  savingIndex,
+  onSave,
+  onCalendar,
+  indexOffset = 0,
+}: {
+  schedules: HorarioVista[];
+  source: unknown;
+  nivel: number;
+  savedIndices: Set<string>;
+  savingIndex: string | null;
+  onSave: (key: string, schedule: HorarioVista) => void;
+  onCalendar: (item: ScheduleView) => void;
+  indexOffset?: number;
+}) {
+  return (
+    <div className="schedule-list">
+      {schedules.map((schedule) => {
+        const key = `${indexOffset}-${schedule.id}`;
+        const item: ScheduleView = { title: schedule.name, level: nivel, schedule, source };
+        const saved = savedIndices.has(key);
+        return (
+          <article className="schedule-card" key={key}>
+            <div className="schedule-top">
+              <h2>{schedule.name}</h2>
+              <span className="credit-pill">{scheduleSize(item)}</span>
+            </div>
+            <div className="omitted">
+              <strong>Materias omitidas:</strong>
+              {schedule.omitidas.length === 0 ? (
+                <span className="plain">Ninguna</span>
+              ) : (
+                <ul>
+                  {schedule.omitidas.map((omitida) => (
+                    <li key={omitida.materiaId}>
+                      <span className="plain">
+                        {materiaName(source, omitida.materiaId)} — {omitida.razones.join("; ")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="actions">
+              <Button primary icon="calendar" onClick={() => onCalendar(item)}>
+                Ver calendario
+              </Button>
+              <Button
+                icon={saved ? "check" : "bookmark"}
+                active={saved}
+                disabled={saved || savingIndex !== null}
+                onClick={() => onSave(key, schedule)}
+              >
+                {saved ? "Guardado" : savingIndex === key ? "Guardando…" : "Guardar"}
+              </Button>
+              <DownloadButtons item={item} />
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function Generated({
   result,
   source,
@@ -580,14 +731,16 @@ function Generated({
   onCalendar,
   onUpload,
 }: {
-  result: PreparedLevelZero | null;
+  result: RespuestaGeneracion | null;
   source: unknown;
-  savedIndices: Set<number>;
-  savingIndex: number | null;
-  onSave: (index: number) => void;
+  savedIndices: Set<string>;
+  savingIndex: string | null;
+  onSave: (key: string, schedule: HorarioVista) => void;
   onCalendar: (item: ScheduleView) => void;
   onUpload: () => void;
 }) {
+  const ok = result?.estado === "OK";
+  const level = result?.nivelAlcanzado ?? 0;
   return (
     <>
       <div className="page-heading">
@@ -598,58 +751,81 @@ function Generated({
         <>
           <section className="summary-card">
             <div className="metric">
+              <span>Estado</span>
+              <strong>{ok ? "OK" : "Sin horario"}</strong>
+            </div>
+            <div className="metric">
               <span>Nivel alcanzado</span>
-              <strong>0</strong>
+              <strong>{level < 0 ? "—" : level}</strong>
             </div>
             <div className="metric">
               <span>Horarios válidos</span>
               <strong>
-                {result.schedules.length}
-                {result.truncated ? "+" : ""}
+                {result.horarios.length}
+                {result.truncado ? "+" : ""}
               </strong>
             </div>
             <div className="criteria">
-              <span>Restricción activa</span>
+              <span>Criterios activos</span>
               <div>
-                <em>Sesiones sin cruces</em>
+                {result.criteriosActivos.length === 0 && <em>Ninguno</em>}
+                {result.criteriosActivos.map((name) => (
+                  <em key={name}>{criterionLabel(name)}</em>
+                ))}
               </div>
             </div>
           </section>
-          {result.schedules.length === 0 && (
-            <p className="footnote">El nivel 0 no encontró una combinación sin cruces.</p>
+          {!ok && (
+            <section className="warning-card" role="status">
+              <strong>No hay horarios que cumplan todos los criterios</strong>
+              {result.motivo && <p>{result.motivo}</p>}
+              {result.criteriosNoCumplidos.length > 0 && (
+                <p>
+                  <b>Criterios no cumplidos:</b>{" "}
+                  {result.criteriosNoCumplidos.map(criterionLabel).join(", ")}. El primero es el que
+                  impidió avanzar; los siguientes ya no se pudieron verificar.
+                </p>
+              )}
+            </section>
           )}
-          <div className="schedule-list">
-            {result.schedules.map((schedule, index) => {
-              const item = { title: schedule.name, level: 0, schedule, source };
-              const saved = savedIndices.has(index);
-              return (
-                <article className="schedule-card" key={schedule.name}>
-                  <div className="schedule-top">
-                    <h2>{schedule.name}</h2>
-                    <span className="credit-pill">{scheduleSize(item)}</span>
-                  </div>
-                  <div className="omitted">
-                    <strong>Materias omitidas:</strong>
-                    <span className="plain">Ninguna</span>
-                  </div>
-                  <div className="actions">
-                    <Button primary icon="calendar" onClick={() => onCalendar(item)}>
-                      Ver calendario
-                    </Button>
-                    <Button
-                      icon={saved ? "check" : "bookmark"}
-                      active={saved}
-                      disabled={saved || savingIndex !== null}
-                      onClick={() => onSave(index)}
-                    >
-                      {saved ? "Guardado" : savingIndex === index ? "Guardando…" : "Guardar"}
-                    </Button>
-                    <DownloadButtons item={item} />
-                  </div>
-                </article>
-              );
-            })}
+          {result.truncado && (
+            <p className="footnote">
+              Hay más horarios válidos de los que se muestran: se listan solo los primeros (los
+              mejor ordenados).
+            </p>
+          )}
+          <div className="actions result-downloads">
+            <ResultDownloads result={result} />
           </div>
+          {ok && (
+            <ScheduleCards
+              schedules={result.horarios}
+              source={source}
+              nivel={level}
+              savedIndices={savedIndices}
+              savingIndex={savingIndex}
+              onSave={onSave}
+              onCalendar={onCalendar}
+            />
+          )}
+          {!ok && result.horariosNivelAlcanzado.length > 0 && (
+            <>
+              <h2 className="subheading">
+                Mejores horarios hasta el nivel {level} ({result.horariosNivelAlcanzado.length}
+                {result.truncado ? "+" : ""})
+              </h2>
+              <ScheduleCards
+                schedules={result.horariosNivelAlcanzado}
+                source={source}
+                nivel={level}
+                indexOffset={1}
+                savedIndices={savedIndices}
+                savingIndex={savingIndex}
+                onSave={onSave}
+                onCalendar={onCalendar}
+              />
+            </>
+          )}
         </>
       ) : (
         <div className="schedule-list">
@@ -661,6 +837,20 @@ function Generated({
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+function ResultDownloads({ result }: { result: RespuestaGeneracion }) {
+  const name = `horarios-${result.estudianteId ?? "estudiante"}`;
+  return (
+    <>
+      <Button icon="download" onClick={() => downloadText(`${name}.json`, result.descargas.json)}>
+        Descargar todo (JSON)
+      </Button>
+      <Button icon="download" onClick={() => downloadText(`${name}.txt`, result.descargas.txt)}>
+        Descargar todo (TXT)
+      </Button>
     </>
   );
 }
@@ -712,7 +902,7 @@ function Saved({
           const item: ScheduleView = {
             title: record.title,
             level: record.level,
-            schedule: { name: record.title, courses: record.schedule.courses ?? [] },
+            schedule: { ...record.schedule, name: record.title, courses: record.schedule.courses ?? [] },
             source: record.source_json,
           };
           return (
@@ -809,6 +999,9 @@ function Calendar({ item, onBack }: { item: ScheduleView; onBack: () => void }) 
                   .map((session) => {
                     const name =
                       catalog.get(session.course.courseId)?.name ?? session.course.courseId;
+                    const professor = item.schedule.materias?.find(
+                      ({ courseId }) => courseId === session.course.courseId,
+                    )?.profesor;
                     const interval = `${formatTime(session.startMinute)}–${formatTime(session.endMinute)}`;
                     return (
                       <div
@@ -818,12 +1011,13 @@ function Calendar({ item, onBack }: { item: ScheduleView; onBack: () => void }) 
                           top: `${((session.startMinute - startHour * 60) / minutes) * 100}%`,
                           height: `${((session.endMinute - session.startMinute) / minutes) * 100}%`,
                         }}
-                        title={`${name} · Grupo ${session.course.sectionId} · ${interval}`}
+                        title={`${name} · Grupo ${session.course.sectionId}${professor ? ` · ${professor}` : ""} · ${interval}`}
                       >
                         <strong>{name}</strong>
                         <span>
                           Grupo {session.course.sectionId} · {interval}
                         </span>
+                        {professor && <span>{professor}</span>}
                       </div>
                     );
                   })}
@@ -851,6 +1045,9 @@ function catalogEntries(source: unknown) {
 }
 
 function scheduleSize(item: ScheduleView) {
+  if (typeof item.schedule.creditosTotales === "number") {
+    return `${item.schedule.creditosTotales} créditos totales`;
+  }
   const catalog = catalogEntries(item.source);
   const credits = item.schedule.courses.map(({ courseId }) => catalog.get(courseId)?.credits);
   if (credits.length > 0 && credits.every((credit): credit is number => credit !== undefined)) {
@@ -860,35 +1057,45 @@ function scheduleSize(item: ScheduleView) {
   return `${count} ${count === 1 ? "materia" : "materias"}`;
 }
 
+function materiaName(source: unknown, id: string) {
+  return catalogEntries(source).get(id)?.name ?? id;
+}
+
 function formatTime(minutes: number) {
   const hour = Math.floor(minutes / 60);
   return `${hour.toString().padStart(2, "0")}:${(minutes % 60).toString().padStart(2, "0")}`;
 }
 
+function downloadText(fileName: string, content: string) {
+  const type = fileName.endsWith(".json") ? "application/json" : "text/plain;charset=utf-8";
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function DownloadButtons({ item, fullLabel = false }: { item: ScheduleView; fullLabel?: boolean }) {
   function download(extension: "json" | "txt") {
-    const catalog = catalogEntries(item.source);
-    const text = item.schedule.courses.flatMap((course) => [
-      `${catalog.get(course.courseId)?.name ?? course.courseId} · Grupo ${course.sectionId}`,
-      ...course.meetings.map(
-        (session) =>
-          `  ${days[Number(session.day) - 1]} ${formatTime(session.startMinute)}–${formatTime(session.endMinute)}`,
-      ),
-    ]);
-    const content =
-      extension === "json"
-        ? JSON.stringify(item.schedule, null, 2)
-        : [item.title, ...text].join("\n");
-    const url = URL.createObjectURL(
-      new Blob([content], {
-        type: extension === "json" ? "application/json" : "text/plain;charset=utf-8",
-      }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${item.title}.${extension}`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const { json, txt } = item.schedule;
+    let content = extension === "json" ? json : txt;
+    if (content === undefined) {
+      // Horarios guardados antes del algoritmo completo: no traen los textos exportados.
+      const catalog = catalogEntries(item.source);
+      const lines = item.schedule.courses.flatMap((course) => [
+        `${catalog.get(course.courseId)?.name ?? course.courseId} · Grupo ${course.sectionId}`,
+        ...course.meetings.map(
+          (session) =>
+            `  ${days[Number(session.day) - 1]} ${formatTime(session.startMinute)}–${formatTime(session.endMinute)}`,
+        ),
+      ]);
+      content =
+        extension === "json"
+          ? JSON.stringify(item.schedule, null, 2)
+          : [item.title, ...lines].join("\n");
+    }
+    downloadText(`${item.title}.${extension}`, content);
   }
 
   return (
@@ -933,11 +1140,11 @@ function SignedIn({
 }) {
   const [view, setView] = useState<Exclude<View, "auth">>("home");
   const [file, setFile] = useState<ValidatedFile | null>(null);
-  const [result, setResult] = useState<PreparedLevelZero | null>(null);
+  const [result, setResult] = useState<RespuestaGeneracion | null>(null);
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [title, setTitle] = useState("");
-  const [savedIndices, setSavedIndices] = useState(new Set<number>());
-  const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [savedIndices, setSavedIndices] = useState(new Set<string>());
+  const [savingIndex, setSavingIndex] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState("");
   const [calendar, setCalendar] = useState<{
@@ -964,8 +1171,8 @@ function SignedIn({
     setStatus("");
     setGenerating(true);
     try {
-      setResult(await post<PreparedLevelZero>("/api/generate", { sourceJson: file.source }));
-      setSavedIndices(new Set());
+      setResult(await post<RespuestaGeneracion>("/api/generate", { sourceJson: file.source }));
+      setSavedIndices(new Set<string>());
       navigate("generated");
     } catch (error) {
       setStatus(message(error));
@@ -974,21 +1181,20 @@ function SignedIn({
     }
   }
 
-  async function save(index: number) {
-    const schedule = result?.schedules[index];
-    if (!file || !schedule || savingIndex !== null || savedIndices.has(index)) return;
+  async function save(key: string, schedule: HorarioVista) {
+    if (!file || !result || savingIndex !== null || savedIndices.has(key)) return;
     setStatus("");
-    setSavingIndex(index);
+    setSavingIndex(key);
     try {
       await post("/api/schedules", {
         ownerUserId: user.id,
         participantIds,
         title: title.trim() || schedule.name,
-        level: 0,
+        level: Math.max(result.nivelAlcanzado ?? 0, 0),
         sourceJson: file.source,
         schedule,
       });
-      setSavedIndices((current) => new Set(current).add(index));
+      setSavedIndices((current) => new Set(current).add(key));
     } catch (error) {
       setStatus(message(error));
     } finally {
@@ -1018,7 +1224,7 @@ function SignedIn({
             onFileChange={(next) => {
               setFile(next);
               setResult(null);
-              setSavedIndices(new Set());
+              setSavedIndices(new Set<string>());
               setStatus("");
             }}
             onGenerate={() => void generate()}
@@ -1031,7 +1237,7 @@ function SignedIn({
             source={file?.source}
             savingIndex={savingIndex}
             savedIndices={savedIndices}
-            onSave={(index) => void save(index)}
+            onSave={(key, schedule) => void save(key, schedule)}
             onUpload={() => navigate("upload")}
             onCalendar={(item) => openCalendar(item, "generated")}
           />

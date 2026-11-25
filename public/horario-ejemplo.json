@@ -1,60 +1,209 @@
 {
   "catalogo": {
     "materias": [
-      { "id": "ALG", "nombre": "Análisis de algoritmos", "creditos": 4 },
-      { "id": "EST", "nombre": "Probabilidad y estadística", "creditos": 4 },
-      { "id": "SOF", "nombre": "Ingeniería de software", "creditos": 3 }
+      {
+        "id": "M1",
+        "nombre": "Materia 1",
+        "creditos": 3
+      },
+      {
+        "id": "M2",
+        "nombre": "Materia 2",
+        "creditos": 3
+      },
+      {
+        "id": "M3",
+        "nombre": "Materia 3",
+        "creditos": 3
+      },
+      {
+        "id": "M4",
+        "nombre": "Materia 4",
+        "creditos": 4
+      }
     ],
-    "profesores": [{ "id": "P1", "nombre": "Docente de ejemplo" }],
+    "profesores": [
+      {
+        "id": "P1",
+        "nombre": "Profesor 1"
+      },
+      {
+        "id": "P2",
+        "nombre": "Profesor 2"
+      },
+      {
+        "id": "P3",
+        "nombre": "Profesor 3"
+      }
+    ],
     "grupos": [
       {
-        "id": "ALG-01",
-        "materiaId": "ALG",
+        "id": "M1-01",
+        "materiaId": "M1",
         "profesorId": "P1",
-        "cuposDisponibles": 20,
-        "inscritos": [],
+        "cuposDisponibles": 12,
+        "inscritos": [
+          "E202"
+        ],
         "sesiones": [
-          { "dia": "Lunes", "inicio": 420, "fin": 540 },
-          { "dia": "Miércoles", "inicio": 420, "fin": 540 }
+          {
+            "dia": "jueves",
+            "inicio": "13:30",
+            "fin": "15:00"
+          }
         ]
       },
       {
-        "id": "ALG-02",
-        "materiaId": "ALG",
+        "id": "M1-02",
+        "materiaId": "M1",
         "profesorId": "P1",
-        "cuposDisponibles": 20,
+        "cuposDisponibles": 23,
         "inscritos": [],
         "sesiones": [
-          { "dia": "Lunes", "inicio": 540, "fin": 660 },
-          { "dia": "Miércoles", "inicio": 540, "fin": 660 }
+          {
+            "dia": "lunes",
+            "inicio": "08:30",
+            "fin": "10:30"
+          },
+          {
+            "dia": "martes",
+            "inicio": "16:00",
+            "fin": "17:30"
+          }
         ]
       },
       {
-        "id": "EST-01",
-        "materiaId": "EST",
-        "profesorId": "P1",
-        "cuposDisponibles": 20,
-        "inscritos": [],
+        "id": "M2-01",
+        "materiaId": "M2",
+        "profesorId": "P3",
+        "cuposDisponibles": 14,
+        "inscritos": [
+          "E201"
+        ],
         "sesiones": [
-          { "dia": "Martes", "inicio": 540, "fin": 660 },
-          { "dia": "Jueves", "inicio": 540, "fin": 660 }
+          {
+            "dia": "martes",
+            "inicio": "15:30",
+            "fin": "16:30"
+          },
+          {
+            "dia": "jueves",
+            "inicio": "13:00",
+            "fin": "14:30"
+          }
         ]
       },
       {
-        "id": "SOF-01",
-        "materiaId": "SOF",
+        "id": "M3-01",
+        "materiaId": "M3",
+        "profesorId": "P3",
+        "cuposDisponibles": 14,
+        "inscritos": [
+          "E202"
+        ],
+        "sesiones": [
+          {
+            "dia": "miércoles",
+            "inicio": "10:00",
+            "fin": "11:30"
+          }
+        ]
+      },
+      {
+        "id": "M3-02",
+        "materiaId": "M3",
+        "profesorId": "P2",
+        "cuposDisponibles": 18,
+        "inscritos": [
+          "E201"
+        ],
+        "sesiones": [
+          {
+            "dia": "miércoles",
+            "inicio": "18:00",
+            "fin": "20:00"
+          },
+          {
+            "dia": "martes",
+            "inicio": "08:30",
+            "fin": "09:30"
+          }
+        ]
+      },
+      {
+        "id": "M4-01",
+        "materiaId": "M4",
+        "profesorId": "P2",
+        "cuposDisponibles": 22,
+        "inscritos": [
+          "E201"
+        ],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "09:00",
+            "fin": "11:00"
+          }
+        ]
+      },
+      {
+        "id": "M4-02",
+        "materiaId": "M4",
         "profesorId": "P1",
-        "cuposDisponibles": 20,
-        "inscritos": [],
-        "sesiones": [{ "dia": "Viernes", "inicio": 780, "fin": 900 }]
+        "cuposDisponibles": 2,
+        "inscritos": [
+          "E200"
+        ],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "16:30",
+            "fin": "18:30"
+          }
+        ]
       }
     ]
   },
   "estudiante": {
+    "id": "E101",
+    "semestre": 8,
     "materias": [
-      { "materiaId": "ALG", "prioridad": 1, "profesoresPreferidos": [] },
-      { "materiaId": "EST", "prioridad": 2, "profesoresPreferidos": [] },
-      { "materiaId": "SOF", "prioridad": 3, "profesoresPreferidos": [] }
-    ]
+      {
+        "materiaId": "M1",
+        "prioridad": "baja",
+        "profesoresPreferidos": [
+          "P1"
+        ]
+      },
+      {
+        "materiaId": "M2",
+        "prioridad": "media",
+        "profesoresPreferidos": [
+          "P3"
+        ]
+      },
+      {
+        "materiaId": "M3",
+        "prioridad": "media",
+        "profesoresPreferidos": [
+          "P2"
+        ]
+      },
+      {
+        "materiaId": "M4",
+        "prioridad": "alta"
+      }
+    ],
+    "creditosMax": 9,
+    "creditosMin": 4,
+    "huecos": {
+      "tipo": "cortos",
+      "maxMinutos": 30
+    },
+    "amigos": [
+      "E200",
+      "E201"
+    ],
+    "minCoincidenciasAmigos": 1
   }
 }

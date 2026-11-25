@@ -1332,3 +1332,137 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Entrega 2: errores de validación, aviso de "sin horario" y descargas ---- */
+.summary-card {
+  flex-wrap: wrap;
+  gap: 28px 56px;
+}
+
+.criteria div {
+  flex-wrap: wrap;
+}
+
+.error-card {
+  margin-top: 26px;
+  padding: 24px 28px;
+  border: 1px solid #efc3c3;
+  border-radius: 15px;
+  color: #7f1d1d;
+  background: #fdf0f0;
+}
+
+.error-card > h2 {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.error-card > p {
+  margin-top: 4px;
+}
+
+.error-group {
+  margin-top: 22px;
+}
+
+.error-group h3 {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.error-group h3 span {
+  font-weight: 500;
+}
+
+.error-group ul {
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  list-style: none;
+}
+
+.error-group li {
+  padding: 14px 16px;
+  border: 1px solid #f0d2d2;
+  border-radius: 12px;
+  color: #10243e;
+  background: white;
+}
+
+.error-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.error-code,
+.error-path {
+  padding: 2px 9px;
+  border-radius: 99px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+
+.error-code {
+  color: white;
+  background: #b42323;
+}
+
+.error-path {
+  color: #334155;
+  background: #eef1f5;
+}
+
+.error-group li p {
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+.error-group dl {
+  margin: 8px 0 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 14px;
+  font-size: 14px;
+}
+
+.error-group dt {
+  color: #667080;
+}
+
+.error-group dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.warning-card {
+  margin-top: 18px;
+  padding: 20px 26px;
+  border: 1px solid #ecd9a0;
+  border-radius: 15px;
+  color: #6b4a06;
+  background: #fff7e0;
+}
+
+.warning-card p {
+  margin-top: 6px;
+}
+
+.result-downloads {
+  margin: 18px 0 4px;
+}
+
+.subheading {
+  margin: 28px 0 14px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.omitted ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

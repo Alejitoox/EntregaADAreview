@@ -1,0 +1,64 @@
+{
+  "catalogo": {
+    "materias": [
+      {
+        "id": "ED101",
+        "nombre": "Ecuaciones Diferenciales",
+        "creditos": 3
+      },
+      {
+        "id": "FI202",
+        "nombre": "Física II",
+        "creditos": 4
+      }
+    ],
+    "profesores": [
+      {
+        "id": "P12",
+        "nombre": "Profesor Ejemplo"
+      },
+      {
+        "id": "P08",
+        "nombre": "Otra Profesora"
+      }
+    ],
+    "grupos": [
+      {
+        "id": "ED101-01",
+        "materiaId": "ED101",
+        "profesorId": "P12",
+        "cuposDisponibles": 5,
+        "inscritos": [
+          "E203",
+          "E417"
+        ],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "07:00",
+            "fin": "09:00"
+          }
+        ]
+      },
+      {
+        "id": "FI202-01",
+        "materiaId": "FI202",
+        "profesorId": "P08",
+        "cuposDisponibles": 8,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "martes",
+            "inicio": "09:00",
+            "fin": "11:00"
+          },
+          {
+            "dia": "jueves",
+            "inicio": "09:00",
+            "fin": "11:00"
+          }
+        ]
+      }
+    ]
+  }
+}

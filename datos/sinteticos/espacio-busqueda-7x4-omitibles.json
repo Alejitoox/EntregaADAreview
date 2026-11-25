@@ -1,0 +1,475 @@
+{
+  "catalogo": {
+    "materias": [
+      {
+        "id": "M1",
+        "nombre": "Materia 1",
+        "creditos": 3
+      },
+      {
+        "id": "M2",
+        "nombre": "Materia 2",
+        "creditos": 3
+      },
+      {
+        "id": "M3",
+        "nombre": "Materia 3",
+        "creditos": 3
+      },
+      {
+        "id": "M4",
+        "nombre": "Materia 4",
+        "creditos": 3
+      },
+      {
+        "id": "M5",
+        "nombre": "Materia 5",
+        "creditos": 3
+      },
+      {
+        "id": "M6",
+        "nombre": "Materia 6",
+        "creditos": 3
+      },
+      {
+        "id": "M7",
+        "nombre": "Materia 7",
+        "creditos": 3
+      }
+    ],
+    "profesores": [
+      {
+        "id": "P1",
+        "nombre": "Profesor 1"
+      }
+    ],
+    "grupos": [
+      {
+        "id": "M1-01",
+        "materiaId": "M1",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "07:00",
+            "fin": "08:00"
+          }
+        ]
+      },
+      {
+        "id": "M1-02",
+        "materiaId": "M1",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "martes",
+            "inicio": "07:00",
+            "fin": "08:00"
+          }
+        ]
+      },
+      {
+        "id": "M1-03",
+        "materiaId": "M1",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "miércoles",
+            "inicio": "07:00",
+            "fin": "08:00"
+          }
+        ]
+      },
+      {
+        "id": "M1-04",
+        "materiaId": "M1",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "jueves",
+            "inicio": "07:00",
+            "fin": "08:00"
+          }
+        ]
+      },
+      {
+        "id": "M2-01",
+        "materiaId": "M2",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "viernes",
+            "inicio": "07:00",
+            "fin": "08:00"
+          }
+        ]
+      },
+      {
+        "id": "M2-02",
+        "materiaId": "M2",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "sábado",
+            "inicio": "07:00",
+            "fin": "08:00"
+          }
+        ]
+      },
+      {
+        "id": "M2-03",
+        "materiaId": "M2",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "08:00",
+            "fin": "09:00"
+          }
+        ]
+      },
+      {
+        "id": "M2-04",
+        "materiaId": "M2",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "martes",
+            "inicio": "08:00",
+            "fin": "09:00"
+          }
+        ]
+      },
+      {
+        "id": "M3-01",
+        "materiaId": "M3",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "miércoles",
+            "inicio": "08:00",
+            "fin": "09:00"
+          }
+        ]
+      },
+      {
+        "id": "M3-02",
+        "materiaId": "M3",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "jueves",
+            "inicio": "08:00",
+            "fin": "09:00"
+          }
+        ]
+      },
+      {
+        "id": "M3-03",
+        "materiaId": "M3",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "viernes",
+            "inicio": "08:00",
+            "fin": "09:00"
+          }
+        ]
+      },
+      {
+        "id": "M3-04",
+        "materiaId": "M3",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "sábado",
+            "inicio": "08:00",
+            "fin": "09:00"
+          }
+        ]
+      },
+      {
+        "id": "M4-01",
+        "materiaId": "M4",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "09:00",
+            "fin": "10:00"
+          }
+        ]
+      },
+      {
+        "id": "M4-02",
+        "materiaId": "M4",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "martes",
+            "inicio": "09:00",
+            "fin": "10:00"
+          }
+        ]
+      },
+      {
+        "id": "M4-03",
+        "materiaId": "M4",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "miércoles",
+            "inicio": "09:00",
+            "fin": "10:00"
+          }
+        ]
+      },
+      {
+        "id": "M4-04",
+        "materiaId": "M4",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "jueves",
+            "inicio": "09:00",
+            "fin": "10:00"
+          }
+        ]
+      },
+      {
+        "id": "M5-01",
+        "materiaId": "M5",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "viernes",
+            "inicio": "09:00",
+            "fin": "10:00"
+          }
+        ]
+      },
+      {
+        "id": "M5-02",
+        "materiaId": "M5",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "sábado",
+            "inicio": "09:00",
+            "fin": "10:00"
+          }
+        ]
+      },
+      {
+        "id": "M5-03",
+        "materiaId": "M5",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "10:00",
+            "fin": "11:00"
+          }
+        ]
+      },
+      {
+        "id": "M5-04",
+        "materiaId": "M5",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "martes",
+            "inicio": "10:00",
+            "fin": "11:00"
+          }
+        ]
+      },
+      {
+        "id": "M6-01",
+        "materiaId": "M6",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "miércoles",
+            "inicio": "10:00",
+            "fin": "11:00"
+          }
+        ]
+      },
+      {
+        "id": "M6-02",
+        "materiaId": "M6",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "jueves",
+            "inicio": "10:00",
+            "fin": "11:00"
+          }
+        ]
+      },
+      {
+        "id": "M6-03",
+        "materiaId": "M6",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "viernes",
+            "inicio": "10:00",
+            "fin": "11:00"
+          }
+        ]
+      },
+      {
+        "id": "M6-04",
+        "materiaId": "M6",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "sábado",
+            "inicio": "10:00",
+            "fin": "11:00"
+          }
+        ]
+      },
+      {
+        "id": "M7-01",
+        "materiaId": "M7",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "11:00",
+            "fin": "12:00"
+          }
+        ]
+      },
+      {
+        "id": "M7-02",
+        "materiaId": "M7",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "martes",
+            "inicio": "11:00",
+            "fin": "12:00"
+          }
+        ]
+      },
+      {
+        "id": "M7-03",
+        "materiaId": "M7",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "miércoles",
+            "inicio": "11:00",
+            "fin": "12:00"
+          }
+        ]
+      },
+      {
+        "id": "M7-04",
+        "materiaId": "M7",
+        "profesorId": "P1",
+        "cuposDisponibles": 10,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "jueves",
+            "inicio": "11:00",
+            "fin": "12:00"
+          }
+        ]
+      }
+    ]
+  },
+  "estudiante": {
+    "id": "E101",
+    "semestre": 6,
+    "materias": [
+      {
+        "materiaId": "M1",
+        "prioridad": "media"
+      },
+      {
+        "materiaId": "M2",
+        "prioridad": "media"
+      },
+      {
+        "materiaId": "M3",
+        "prioridad": "media"
+      },
+      {
+        "materiaId": "M4",
+        "prioridad": "media"
+      },
+      {
+        "materiaId": "M5",
+        "prioridad": "media"
+      },
+      {
+        "materiaId": "M6",
+        "prioridad": "media"
+      },
+      {
+        "materiaId": "M7",
+        "prioridad": "media"
+      }
+    ]
+  }
+}

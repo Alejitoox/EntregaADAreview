@@ -1,24 +1,33 @@
 import { NextResponse } from "next/server";
 import {
-  prepareLevelZero,
-  readLevelZeroCourses,
-} from "../../../src/application/scheduling/prepare-level-zero";
+  generarDesdeArchivo,
+  validarArchivo,
+} from "../../../src/application/scheduling/ejecutar-archivo";
 
 export const runtime = "nodejs";
 
+/**
+ * POST { sourceJson, validateOnly? }
+ *  - validateOnly: responde { valid, errores } con TODOS los errores del archivo.
+ *  - si no: valida y ejecuta los 9 niveles; responde la RespuestaGeneracion completa.
+ * Un archivo inválido no es un error HTTP: es un resultado con estado ARCHIVO_INVALIDO.
+ */
 export async function POST(request: Request) {
+  const body = (await request.json().catch(() => null)) as {
+    sourceJson?: unknown;
+    validateOnly?: boolean;
+  } | null;
+  if (!body || body.sourceJson === undefined) {
+    return NextResponse.json({ error: "Envía el contenido del archivo JSON." }, { status: 400 });
+  }
   try {
-    const body = (await request.json()) as { sourceJson?: unknown; validateOnly?: boolean };
-    if (body.sourceJson === undefined) {
-      return NextResponse.json({ error: "Envía el contenido del archivo JSON." }, { status: 400 });
-    }
     if (body.validateOnly === true) {
-      readLevelZeroCourses(body.sourceJson);
-      return NextResponse.json({ valid: true });
+      const { errores } = validarArchivo(body.sourceJson);
+      return NextResponse.json({ valid: errores.length === 0, errores });
     }
-    return NextResponse.json({ level: 0, ...prepareLevelZero(body.sourceJson) });
+    return NextResponse.json(generarDesdeArchivo(body.sourceJson));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No se pudo generar el horario.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    console.error("Fallo inesperado al generar horarios", error);
+    return NextResponse.json({ error: "No se pudo generar el horario." }, { status: 500 });
   }
 }

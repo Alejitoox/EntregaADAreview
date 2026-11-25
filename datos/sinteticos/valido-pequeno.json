@@ -1,0 +1,209 @@
+{
+  "catalogo": {
+    "materias": [
+      {
+        "id": "M1",
+        "nombre": "Materia 1",
+        "creditos": 3
+      },
+      {
+        "id": "M2",
+        "nombre": "Materia 2",
+        "creditos": 3
+      },
+      {
+        "id": "M3",
+        "nombre": "Materia 3",
+        "creditos": 3
+      },
+      {
+        "id": "M4",
+        "nombre": "Materia 4",
+        "creditos": 4
+      }
+    ],
+    "profesores": [
+      {
+        "id": "P1",
+        "nombre": "Profesor 1"
+      },
+      {
+        "id": "P2",
+        "nombre": "Profesor 2"
+      },
+      {
+        "id": "P3",
+        "nombre": "Profesor 3"
+      }
+    ],
+    "grupos": [
+      {
+        "id": "M1-01",
+        "materiaId": "M1",
+        "profesorId": "P1",
+        "cuposDisponibles": 12,
+        "inscritos": [
+          "E202"
+        ],
+        "sesiones": [
+          {
+            "dia": "jueves",
+            "inicio": "13:30",
+            "fin": "15:00"
+          }
+        ]
+      },
+      {
+        "id": "M1-02",
+        "materiaId": "M1",
+        "profesorId": "P1",
+        "cuposDisponibles": 23,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "08:30",
+            "fin": "10:30"
+          },
+          {
+            "dia": "martes",
+            "inicio": "16:00",
+            "fin": "17:30"
+          }
+        ]
+      },
+      {
+        "id": "M2-01",
+        "materiaId": "M2",
+        "profesorId": "P3",
+        "cuposDisponibles": 14,
+        "inscritos": [
+          "E201"
+        ],
+        "sesiones": [
+          {
+            "dia": "martes",
+            "inicio": "15:30",
+            "fin": "16:30"
+          },
+          {
+            "dia": "jueves",
+            "inicio": "13:00",
+            "fin": "14:30"
+          }
+        ]
+      },
+      {
+        "id": "M3-01",
+        "materiaId": "M3",
+        "profesorId": "P3",
+        "cuposDisponibles": 14,
+        "inscritos": [
+          "E202"
+        ],
+        "sesiones": [
+          {
+            "dia": "miércoles",
+            "inicio": "10:00",
+            "fin": "11:30"
+          }
+        ]
+      },
+      {
+        "id": "M3-02",
+        "materiaId": "M3",
+        "profesorId": "P2",
+        "cuposDisponibles": 18,
+        "inscritos": [
+          "E201"
+        ],
+        "sesiones": [
+          {
+            "dia": "miércoles",
+            "inicio": "18:00",
+            "fin": "20:00"
+          },
+          {
+            "dia": "martes",
+            "inicio": "08:30",
+            "fin": "09:30"
+          }
+        ]
+      },
+      {
+        "id": "M4-01",
+        "materiaId": "M4",
+        "profesorId": "P2",
+        "cuposDisponibles": 22,
+        "inscritos": [
+          "E201"
+        ],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "09:00",
+            "fin": "11:00"
+          }
+        ]
+      },
+      {
+        "id": "M4-02",
+        "materiaId": "M4",
+        "profesorId": "P1",
+        "cuposDisponibles": 2,
+        "inscritos": [
+          "E200"
+        ],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "16:30",
+            "fin": "18:30"
+          }
+        ]
+      }
+    ]
+  },
+  "estudiante": {
+    "id": "E101",
+    "semestre": 8,
+    "materias": [
+      {
+        "materiaId": "M1",
+        "prioridad": "baja",
+        "profesoresPreferidos": [
+          "P1"
+        ]
+      },
+      {
+        "materiaId": "M2",
+        "prioridad": "media",
+        "profesoresPreferidos": [
+          "P3"
+        ]
+      },
+      {
+        "materiaId": "M3",
+        "prioridad": "media",
+        "profesoresPreferidos": [
+          "P2"
+        ]
+      },
+      {
+        "materiaId": "M4",
+        "prioridad": "alta"
+      }
+    ],
+    "creditosMax": 9,
+    "creditosMin": 4,
+    "huecos": {
+      "tipo": "cortos",
+      "maxMinutos": 30
+    },
+    "amigos": [
+      "E200",
+      "E201"
+    ],
+    "minCoincidenciasAmigos": 1
+  }
+}

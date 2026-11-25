@@ -1,0 +1,101 @@
+{
+  "catalogo": {
+    "materias": [
+      {
+        "id": "ED101",
+        "nombre": "Ecuaciones Diferenciales",
+        "creditos": 3
+      },
+      {
+        "id": "ED101",
+        "nombre": "Física II",
+        "creditos": 4
+      }
+    ],
+    "profesores": [
+      {
+        "id": "P12",
+        "nombre": "Profesor Ejemplo"
+      },
+      {
+        "id": "P08",
+        "nombre": "Otra Profesora"
+      }
+    ],
+    "grupos": [
+      {
+        "id": "ED101-01",
+        "materiaId": "ED101",
+        "profesorId": "P12",
+        "cuposDisponibles": 5,
+        "inscritos": [
+          "E203",
+          "E417"
+        ],
+        "sesiones": [
+          {
+            "dia": "lunes",
+            "inicio": "07:00",
+            "fin": "09:00"
+          }
+        ]
+      },
+      {
+        "id": "FI202-01",
+        "materiaId": "FI202",
+        "profesorId": "P08",
+        "cuposDisponibles": 8,
+        "inscritos": [],
+        "sesiones": [
+          {
+            "dia": "martes",
+            "inicio": "09:00",
+            "fin": "11:00"
+          },
+          {
+            "dia": "jueves",
+            "inicio": "09:00",
+            "fin": "11:00"
+          }
+        ]
+      }
+    ]
+  },
+  "estudiante": {
+    "id": "E101",
+    "semestre": 6,
+    "creditosMin": 3,
+    "creditosMax": 8,
+    "materias": [
+      {
+        "materiaId": "ED101",
+        "prioridad": "alta",
+        "profesoresPreferidos": [
+          "P12",
+          "P08"
+        ]
+      },
+      {
+        "materiaId": "FI202",
+        "prioridad": "media",
+        "profesoresPreferidos": []
+      }
+    ],
+    "franja": {
+      "inicio": "07:00",
+      "fin": "13:00"
+    },
+    "huecos": {
+      "tipo": "cortos",
+      "maxMinutos": 60
+    },
+    "diasLibres": [
+      "viernes"
+    ],
+    "amigos": [
+      "E203",
+      "E417"
+    ],
+    "minCoincidenciasAmigos": 1
+  }
+}
