@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type {
-  HorarioVista,
-  RespuestaGeneracion,
-} from "../application/scheduling/ejecutar-archivo";
+import type { HorarioVista, RespuestaGeneracion } from "../application/scheduling/ejecutar-archivo";
 import type { ErrorValidacion } from "../domain/scheduling/modelo";
+import { supabaseBrowser } from "../infrastructure/supabase/browser";
+import { authEnabled } from "../infrastructure/supabase/config";
 
 type View = "auth" | "home" | "generated" | "saved" | "upload" | "calendar";
 type User = { id: string; name: string; email: string };
@@ -150,49 +149,62 @@ function Header({
           </button>
         </nav>
         <div className="account">
-          <details className="account-switcher">
-            <summary aria-label="Cambiar usuario">
+          {authEnabled && (
+            <div className="account-switcher">
               <span className="avatar">
                 <Icon name="user" />
               </span>
               <span className="account-copy">
                 <strong>{user.name}</strong>
-                <small>Usuario de prueba</small>
+                <small>{user.email}</small>
               </span>
-              <span className="switch-chevron" />
-            </summary>
-            <div className="account-menu">
-              <div className="account-menu-heading">
-                <strong>Cambiar usuario</strong>
-                <small>{users.length} perfiles disponibles</small>
-              </div>
-              <div className="account-options">
-                {users.map((profile) => (
-                  <button
-                    className={profile.id === user.id ? "selected" : ""}
-                    type="button"
-                    key={profile.id}
-                    onClick={(event) => {
-                      setUser(profile);
-                      event.currentTarget.closest("details")?.removeAttribute("open");
-                    }}
-                  >
-                    <span className="menu-avatar">
-                      {profile.name
-                        .split(" ")
-                        .map((part) => part[0])
-                        .join("")}
-                    </span>
-                    <span>
-                      <strong>{profile.name}</strong>
-                      <small>{profile.email}</small>
-                    </span>
-                    {profile.id === user.id && <Icon name="check" size={17} />}
-                  </button>
-                ))}
-              </div>
             </div>
-          </details>
+          )}
+          {!authEnabled && (
+            <details className="account-switcher">
+              <summary aria-label="Cambiar usuario">
+                <span className="avatar">
+                  <Icon name="user" />
+                </span>
+                <span className="account-copy">
+                  <strong>{user.name}</strong>
+                  <small>Usuario de prueba</small>
+                </span>
+                <span className="switch-chevron" />
+              </summary>
+              <div className="account-menu">
+                <div className="account-menu-heading">
+                  <strong>Cambiar usuario</strong>
+                  <small>{users.length} perfiles disponibles</small>
+                </div>
+                <div className="account-options">
+                  {users.map((profile) => (
+                    <button
+                      className={profile.id === user.id ? "selected" : ""}
+                      type="button"
+                      key={profile.id}
+                      onClick={(event) => {
+                        setUser(profile);
+                        event.currentTarget.closest("details")?.removeAttribute("open");
+                      }}
+                    >
+                      <span className="menu-avatar">
+                        {profile.name
+                          .split(" ")
+                          .map((part) => part[0])
+                          .join("")}
+                      </span>
+                      <span>
+                        <strong>{profile.name}</strong>
+                        <small>{profile.email}</small>
+                      </span>
+                      {profile.id === user.id && <Icon name="check" size={17} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </details>
+          )}
           <button className="logout" onClick={() => setView("auth")}>
             Cerrar sesión
           </button>
@@ -206,12 +218,40 @@ function Auth({
   users,
   status,
   onLogin,
+  onCredentials,
 }: {
   users: User[];
   status: string;
   onLogin: (user: User) => void;
+  onCredentials: (
+    mode: "login" | "register",
+    data: { name: string; email: string; password: string },
+  ) => Promise<string>;
 }) {
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formMessage, setFormMessage] = useState("");
+
+  async function submit() {
+    if (submitting) return;
+    if (mode === "register" && password !== confirm) {
+      setFormMessage("Las contraseñas no coinciden.");
+      return;
+    }
+    setSubmitting(true);
+    setFormMessage("");
+    try {
+      setFormMessage(
+        await onCredentials(mode, { name: name.trim(), email: email.trim(), password }),
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <main className="auth-page">
@@ -236,7 +276,13 @@ function Auth({
         </div>
       </section>
       <section className="auth-form-side">
-        <form className="auth-card" onSubmit={(event) => event.preventDefault()}>
+        <form
+          className="auth-card"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (authEnabled) void submit();
+          }}
+        >
           <div className="auth-tabs">
             <button
               type="button"
@@ -261,7 +307,7 @@ function Auth({
                 : "Regístrate para comenzar a organizar tu semestre."}
             </p>
           </div>
-          {mode === "login" && (
+          {mode === "login" && !authEnabled && (
             <>
               <div className="quick-label">
                 <span>Acceso rápido</span>
@@ -299,35 +345,80 @@ function Auth({
               </div>
             </>
           )}
-          <fieldset disabled className="auth-fields" aria-describedby="local-access-note">
+          <fieldset
+            disabled={!authEnabled || submitting}
+            className="auth-fields"
+            aria-describedby="local-access-note"
+          >
             {mode === "register" && (
               <label className="field">
                 <span>Nombre completo</span>
-                <input type="text" placeholder="Tu nombre" required />
+                <input
+                  type="text"
+                  placeholder="Tu nombre"
+                  required
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
               </label>
             )}
             <label className="field">
               <span>Correo electrónico</span>
-              <input type="email" placeholder="correo@ejemplo.com" required />
+              <input
+                type="email"
+                placeholder="correo@ejemplo.com"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
             </label>
             <label className="field">
               <span>Contraseña</span>
-              <input type="password" placeholder="••••••••" required />
+              <input
+                type="password"
+                placeholder="••••••••"
+                required
+                minLength={6}
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
             </label>
             {mode === "register" && (
               <label className="field">
                 <span>Confirmar contraseña</span>
-                <input type="password" placeholder="••••••••" required />
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={confirm}
+                  onChange={(event) => setConfirm(event.target.value)}
+                />
               </label>
             )}
             <button className="auth-submit" type="submit">
-              {mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
+              {submitting ? "Un momento…" : mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
             </button>
           </fieldset>
-          <p id="local-access-note" className="footnote">
-            El acceso con correo se habilitará cuando se conecte la autenticación. Para probar,
-            elige un perfil en Acceso rápido.
-          </p>
+          {authEnabled && status && (
+            <p role="status" className="footnote">
+              {status}
+            </p>
+          )}
+          {formMessage && (
+            <p role="alert" className="form-error">
+              {formMessage}
+            </p>
+          )}
+          {!authEnabled && (
+            <p id="local-access-note" className="footnote">
+              El acceso con correo se habilita al configurar Supabase (ver docs/supabase.md). Para
+              probar en local, elige un perfil en Acceso rápido.
+            </p>
+          )}
         </form>
       </section>
     </main>
@@ -902,7 +993,11 @@ function Saved({
           const item: ScheduleView = {
             title: record.title,
             level: record.level,
-            schedule: { ...record.schedule, name: record.title, courses: record.schedule.courses ?? [] },
+            schedule: {
+              ...record.schedule,
+              name: record.title,
+              courses: record.schedule.courses ?? [],
+            },
             source: record.source_json,
           };
           return (
@@ -1110,8 +1205,13 @@ function DownloadButtons({ item, fullLabel = false }: { item: ScheduleView; full
   );
 }
 
+/** Token de la sesión de Supabase; lo pone `ScheduleWorkspace` al iniciar o cerrar sesión. */
+let accessToken: string | null = null;
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const headers = new Headers(init?.headers);
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const response = await fetch(url, { ...init, headers });
   const body = await response.json();
   if (!response.ok) throw new Error(body.error ?? "No se pudo completar la solicitud.");
   return body as T;
@@ -1257,27 +1357,116 @@ function SignedIn({
   );
 }
 
+function friendlyAuthError(error: { message: string }) {
+  const text = error.message.toLowerCase();
+  if (text.includes("invalid login")) return "Correo o contraseña incorrectos.";
+  if (text.includes("already registered")) return "Ese correo ya tiene una cuenta. Inicia sesión.";
+  if (text.includes("email not confirmed")) return "Confirma tu correo antes de iniciar sesión.";
+  if (text.includes("password")) return "La contraseña debe tener al menos 6 caracteres.";
+  return error.message;
+}
+
 export default function ScheduleWorkspace() {
   const [users, setUsers] = useState<User[]>([]);
-  const [status, setStatus] = useState("Cargando perfiles de prueba…");
-  const [user, setUser] = useState<User | null>(null);
+  const [status, setStatus] = useState(authEnabled ? "" : "Cargando perfiles de prueba…");
+  const [user, setUserState] = useState<User | null>(null);
 
+  async function loadUsers(signal?: AbortSignal) {
+    const { users } = await api<{ users: User[] }>("/api/users", { signal });
+    setUsers(users);
+    return users;
+  }
+
+  // Modo local: los usuarios de demostración se cargan al abrir la página.
   useEffect(() => {
+    if (authEnabled) return;
     const controller = new AbortController();
-    api<{ users: User[] }>("/api/users", { signal: controller.signal })
-      .then(({ users }) => {
-        setUsers(users);
-        setStatus(users.length ? "" : "No hay perfiles de prueba disponibles.");
-      })
+    loadUsers(controller.signal)
+      .then((users) => setStatus(users.length ? "" : "No hay perfiles de prueba disponibles."))
       .catch((error) => {
         if (!controller.signal.aborted) setStatus(message(error));
       });
     return () => controller.abort();
   }, []);
 
+  // Login real: recupera la sesión guardada y mantiene el token al día.
+  useEffect(() => {
+    if (!authEnabled) return;
+    const supabase = supabaseBrowser();
+    let active = true;
+
+    async function enter(token: string | null) {
+      accessToken = token;
+      if (!token) {
+        setUserState(null);
+        return;
+      }
+      try {
+        const { user } = await api<{ user: User }>("/api/me");
+        await loadUsers();
+        if (active) setUserState(user);
+      } catch (error) {
+        if (active) {
+          setStatus(message(error));
+          setUserState(null);
+        }
+      }
+    }
+
+    void supabase.auth.getSession().then(({ data }) => enter(data.session?.access_token ?? null));
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      accessToken = session?.access_token ?? null;
+      if (event === "SIGNED_OUT") setUserState(null);
+    });
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  function setUser(next: User | null) {
+    if (next === null && authEnabled) {
+      void supabaseBrowser().auth.signOut();
+      accessToken = null;
+    }
+    setUserState(next);
+  }
+
+  /** Registro o inicio de sesión con correo. Devuelve el mensaje a mostrar ("" si todo salió bien). */
+  async function credentials(
+    mode: "login" | "register",
+    data: { name: string; email: string; password: string },
+  ) {
+    const supabase = supabaseBrowser();
+    const result =
+      mode === "register"
+        ? await supabase.auth.signUp({
+            email: data.email,
+            password: data.password,
+            options: { data: { full_name: data.name } },
+          })
+        : await supabase.auth.signInWithPassword({ email: data.email, password: data.password });
+    if (result.error) return friendlyAuthError(result.error);
+
+    const session = result.data.session;
+    if (!session) {
+      // Con "Confirm email" activado, Supabase no abre sesión hasta confirmar el correo.
+      return "Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.";
+    }
+    accessToken = session.access_token;
+    try {
+      const { user } = await api<{ user: User }>("/api/me");
+      await loadUsers();
+      setUserState(user);
+      return "";
+    } catch (error) {
+      return message(error);
+    }
+  }
+
   return user ? (
     <SignedIn key={user.id} user={user} users={users} setUser={setUser} />
   ) : (
-    <Auth users={users} status={status} onLogin={setUser} />
+    <Auth users={users} status={status} onLogin={setUser} onCredentials={credentials} />
   );
 }

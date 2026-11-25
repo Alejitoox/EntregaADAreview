@@ -1,11 +1,19 @@
 import { NextResponse } from "next/server";
 import { pool } from "../../../src/infrastructure/postgres/pool";
 import type { GeneratedSchedule } from "../../../src/application/scheduling/prepare-level-zero";
+import { authEnabled } from "../../../src/infrastructure/supabase/config";
+import { usuarioAutenticado } from "../../../src/infrastructure/supabase/usuario-autenticado";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const userId = new URL(request.url).searchParams.get("userId");
+  let userId = new URL(request.url).searchParams.get("userId");
+  if (authEnabled) {
+    // Con login real el usuario sale del token, nunca de lo que mande el navegador.
+    const usuario = await usuarioAutenticado(request);
+    if (!usuario) return NextResponse.json({ error: "Inicia sesión para continuar." }, { status: 401 });
+    userId = usuario.id;
+  }
   if (!userId) return NextResponse.json({ error: "Selecciona un usuario." }, { status: 400 });
 
   try {
@@ -63,6 +71,12 @@ export async function POST(request: Request) {
     schedule?: unknown;
     level?: unknown;
   } | null;
+
+  if (authEnabled && body) {
+    const usuario = await usuarioAutenticado(request);
+    if (!usuario) return NextResponse.json({ error: "Inicia sesión para continuar." }, { status: 401 });
+    body.ownerUserId = usuario.id;
+  }
 
   if (
     !body ||

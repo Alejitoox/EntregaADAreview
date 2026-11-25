@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: complex_schedule
       POSTGRES_PASSWORD: local_dev_password
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d:ro

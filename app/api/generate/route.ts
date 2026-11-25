@@ -3,6 +3,8 @@ import {
   generarDesdeArchivo,
   validarArchivo,
 } from "../../../src/application/scheduling/ejecutar-archivo";
+import { authEnabled } from "../../../src/infrastructure/supabase/config";
+import { usuarioAutenticado } from "../../../src/infrastructure/supabase/usuario-autenticado";
 
 export const runtime = "nodejs";
 
@@ -13,6 +15,9 @@ export const runtime = "nodejs";
  * Un archivo inválido no es un error HTTP: es un resultado con estado ARCHIVO_INVALIDO.
  */
 export async function POST(request: Request) {
+  if (authEnabled && !(await usuarioAutenticado(request))) {
+    return NextResponse.json({ error: "Inicia sesión para continuar." }, { status: 401 });
+  }
   const body = (await request.json().catch(() => null)) as {
     sourceJson?: unknown;
     validateOnly?: boolean;
