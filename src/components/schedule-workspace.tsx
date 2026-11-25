@@ -5,6 +5,12 @@ import type { HorarioVista, RespuestaGeneracion } from "../application/schedulin
 import type { ErrorValidacion } from "../domain/scheduling/modelo";
 import { supabaseBrowser } from "../infrastructure/supabase/browser";
 import { authEnabled } from "../infrastructure/supabase/config";
+import {
+  guardarCuenta,
+  leerCuentas,
+  quitarCuenta,
+  type CuentaRecordada,
+} from "../infrastructure/supabase/cuentas-recordadas";
 
 type View = "auth" | "home" | "generated" | "saved" | "upload" | "calendar";
 type User = { id: string; name: string; email: string };
@@ -105,18 +111,26 @@ function Button({
   );
 }
 
+type AccountControls = {
+  list: CuentaRecordada[];
+  onSwitch: (id: string) => Promise<void> | void;
+  onAdd: () => void;
+};
+
 function Header({
   view,
   setView,
   user,
   users,
   setUser,
+  accounts,
 }: {
   view: View;
   setView: (view: View) => void;
   user: User;
   users: User[];
   setUser: (user: User) => void;
+  accounts?: AccountControls;
 }) {
   return (
     <header className="header">
@@ -150,15 +164,67 @@ function Header({
         </nav>
         <div className="account">
           {authEnabled && (
-            <div className="account-switcher">
-              <span className="avatar">
-                <Icon name="user" />
-              </span>
-              <span className="account-copy">
-                <strong>{user.name}</strong>
-                <small>{user.email}</small>
-              </span>
-            </div>
+            <details className="account-switcher">
+              <summary aria-label="Cambiar de usuario">
+                <span className="avatar">
+                  <Icon name="user" />
+                </span>
+                <span className="account-copy">
+                  <strong>{user.name}</strong>
+                  <small>{user.email}</small>
+                </span>
+                <span className="switch-chevron" />
+              </summary>
+              <div className="account-menu">
+                <div className="account-menu-heading">
+                  <strong>Cambiar de usuario</strong>
+                  <small>
+                    {accounts?.list.length ?? 1}{" "}
+                    {(accounts?.list.length ?? 1) === 1 ? "cuenta" : "cuentas"} en este navegador
+                  </small>
+                </div>
+                <div className="account-options">
+                  {(accounts?.list ?? []).map((account) => (
+                    <button
+                      className={account.id === user.id ? "selected" : ""}
+                      type="button"
+                      key={account.id}
+                      onClick={(event) => {
+                        event.currentTarget.closest("details")?.removeAttribute("open");
+                        if (account.id !== user.id) void accounts?.onSwitch(account.id);
+                      }}
+                    >
+                      <span className="menu-avatar">
+                        {account.name
+                          .split(" ")
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((part) => part[0])
+                          .join("")
+                          .toUpperCase()}
+                      </span>
+                      <span>
+                        <strong>{account.name}</strong>
+                        <small>{account.email}</small>
+                      </span>
+                      {account.id === user.id && <Icon name="check" size={17} />}
+                    </button>
+                  ))}
+                </div>
+                <div className="account-footer">
+                  <button
+                    className="account-add"
+                    type="button"
+                    onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      accounts?.onAdd();
+                    }}
+                  >
+                    + Agregar otra cuenta
+                  </button>
+                </div>
+              </div>
+            </details>
           )}
           {!authEnabled && (
             <details className="account-switcher">
@@ -219,9 +285,11 @@ function Auth({
   status,
   onLogin,
   onCredentials,
+  onCancel,
 }: {
   users: User[];
   status: string;
+  onCancel?: () => void;
   onLogin: (user: User) => void;
   onCredentials: (
     mode: "login" | "register",
@@ -403,6 +471,11 @@ function Auth({
               {submitting ? "Un momento…" : mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
             </button>
           </fieldset>
+          {onCancel && (
+            <button className="auth-back" type="button" onClick={onCancel}>
+              ← Volver a mi cuenta actual
+            </button>
+          )}
           {authEnabled && status && (
             <p role="status" className="footnote">
               {status}
@@ -1233,10 +1306,12 @@ function SignedIn({
   user,
   users,
   setUser,
+  accounts,
 }: {
   user: User;
   users: User[];
   setUser: (user: User | null) => void;
+  accounts?: AccountControls;
 }) {
   const [view, setView] = useState<Exclude<View, "auth">>("home");
   const [file, setFile] = useState<ValidatedFile | null>(null);
@@ -1304,7 +1379,14 @@ function SignedIn({
 
   return (
     <div className="app-shell">
-      <Header view={view} setView={navigate} user={user} users={users} setUser={setUser} />
+      <Header
+        view={view}
+        setView={navigate}
+        user={user}
+        users={users}
+        setUser={setUser}
+        accounts={accounts}
+      />
       <main className={`main ${view === "calendar" ? "calendar-page" : ""}`}>
         {status && (
           <p className="form-error" role="alert">
@@ -1370,6 +1452,8 @@ export default function ScheduleWorkspace() {
   const [users, setUsers] = useState<User[]>([]);
   const [status, setStatus] = useState(authEnabled ? "" : "Cargando perfiles de prueba…");
   const [user, setUserState] = useState<User | null>(null);
+  const [cuentas, setCuentas] = useState<CuentaRecordada[]>([]);
+  const [adding, setAdding] = useState(false);
 
   async function loadUsers(signal?: AbortSignal) {
     const { users } = await api<{ users: User[] }>("/api/users", { signal });
@@ -1414,9 +1498,27 @@ export default function ScheduleWorkspace() {
     }
 
     void supabase.auth.getSession().then(({ data }) => enter(data.session?.access_token ?? null));
+    setCuentas(leerCuentas());
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       accessToken = session?.access_token ?? null;
       if (event === "SIGNED_OUT") setUserState(null);
+      const authUser = session?.user;
+      if (session && authUser?.email) {
+        // Recuerda la cuenta (y sus tokens, que se renuevan solos) para poder cambiar de usuario.
+        const metaName = authUser.user_metadata?.full_name;
+        setCuentas(
+          guardarCuenta({
+            id: authUser.id,
+            name:
+              typeof metaName === "string" && metaName.trim()
+                ? metaName.trim()
+                : authUser.email.split("@")[0],
+            email: authUser.email,
+            accessToken: session.access_token,
+            refreshToken: session.refresh_token,
+          }),
+        );
+      }
     });
     return () => {
       active = false;
@@ -1426,10 +1528,41 @@ export default function ScheduleWorkspace() {
 
   function setUser(next: User | null) {
     if (next === null && authEnabled) {
-      void supabaseBrowser().auth.signOut();
+      // Cierra solo esta sesión (scope local) y deja las demás cuentas recordadas intactas.
+      if (user) setCuentas(quitarCuenta(user.id));
+      void supabaseBrowser().auth.signOut({ scope: "local" });
       accessToken = null;
     }
+    setAdding(false);
     setUserState(next);
+  }
+
+  /** Cambia a otra cuenta recordada sin pedir la contraseña. */
+  async function switchAccount(id: string) {
+    const cuenta = leerCuentas().find((c) => c.id === id);
+    if (!cuenta) return;
+    const supabase = supabaseBrowser();
+    const { data, error } = await supabase.auth.setSession({
+      access_token: cuenta.accessToken,
+      refresh_token: cuenta.refreshToken,
+    });
+    if (error || !data.session) {
+      // La sesión de esa cuenta caducó o fue revocada: hay que iniciar sesión de nuevo.
+      setCuentas(quitarCuenta(id));
+      setStatus(`La sesión de ${cuenta.email} caducó. Inicia sesión de nuevo con esa cuenta.`);
+      setAdding(true);
+      return;
+    }
+    accessToken = data.session.access_token;
+    try {
+      const { user: next } = await api<{ user: User }>("/api/me");
+      await loadUsers();
+      setAdding(false);
+      setUserState(next);
+    } catch (error) {
+      setStatus(message(error));
+      setAdding(true);
+    }
   }
 
   /** Registro o inicio de sesión con correo. Devuelve el mensaje a mostrar ("" si todo salió bien). */
@@ -1457,6 +1590,7 @@ export default function ScheduleWorkspace() {
     try {
       const { user } = await api<{ user: User }>("/api/me");
       await loadUsers();
+      setAdding(false);
       setUserState(user);
       return "";
     } catch (error) {
@@ -1464,9 +1598,40 @@ export default function ScheduleWorkspace() {
     }
   }
 
-  return user ? (
-    <SignedIn key={user.id} user={user} users={users} setUser={setUser} />
+  return user && !adding ? (
+    <SignedIn
+      key={user.id}
+      user={user}
+      users={users}
+      setUser={setUser}
+      accounts={
+        authEnabled
+          ? {
+              list: cuentas.some((c) => c.id === user.id)
+                ? cuentas
+                : [
+                    ...cuentas,
+                    {
+                      id: user.id,
+                      name: user.name,
+                      email: user.email,
+                      accessToken: "",
+                      refreshToken: "",
+                    },
+                  ],
+              onSwitch: switchAccount,
+              onAdd: () => setAdding(true),
+            }
+          : undefined
+      }
+    />
   ) : (
-    <Auth users={users} status={status} onLogin={setUser} onCredentials={credentials} />
+    <Auth
+      users={users}
+      status={status}
+      onLogin={setUser}
+      onCredentials={credentials}
+      onCancel={user ? () => setAdding(false) : undefined}
+    />
   );
 }

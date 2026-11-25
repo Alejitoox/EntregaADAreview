@@ -1466,3 +1466,32 @@
   padding: 0;
   list-style: none;
 }
+
+/* Cambio de usuario (cuentas recordadas) */
+.account-footer {
+  padding: 7px;
+  border-top: 1px solid #e7ebf0;
+}
+
+.account-add {
+  width: 100%;
+  padding: 11px;
+  border-radius: 9px;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.account-add:hover {
+  background: #f3f7fc;
+}
+
+.auth-back {
+  margin-top: 14px;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+}
