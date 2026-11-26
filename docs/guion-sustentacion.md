@@ -49,8 +49,12 @@ src/application/scheduling/
   ejecutar-archivo.ts         pega todo y entrega la respuesta que usa la web
 
 app/api/generate/route.ts     la ruta HTTP: validar o generar
+app/api/me, users, schedules  usuario actual, lista de usuarios y horarios guardados
+src/infrastructure/supabase/  login real: configuración, cliente del navegador,
+                              verificación del token en el servidor y cuentas recordadas
+src/infrastructure/postgres/  conexión a la base de datos (Supabase o Docker local)
 src/components/schedule-workspace.tsx   la interfaz (pantallas)
-tests/algoritmo.test.mjs      44 pruebas, no necesitan Docker
+tests/algoritmo.test.mjs      58 pruebas, no necesitan Docker
 scripts/ , datos/sinteticos/  generador de datos de prueba y los archivos generados
 ```
 
@@ -205,16 +209,21 @@ numeran `Horario 1, 2, 3…`.
 - **`OK`**: hay al menos un horario que cumple los 9 niveles.
 - **`SIN_HORARIO`**: ninguno cumple todo. Se calcula el **nivel alcanzado** (el
   mayor nivel con al menos un horario) y los **criterios no cumplidos**. Primero se
-  intenta directo el nivel 8; si no hay nada, se prueba 0, 1, 2… para ver hasta
-  dónde se llega.
+  intenta directo el nivel 8; si no hay nada, se busca el nivel más alto con
+  horarios por **búsqueda binaria** (como cada nivel incluye al anterior, basta con
+  unas 3 búsquedas en vez de probar los 8 niveles).
 - **`ARCHIVO_INVALIDO`**: había errores de validación; no se ejecutó nada.
 
 Casos especiales: si una materia **alta** no tiene grupos, se responde
-`SIN_HORARIO` de inmediato. Las materias omitidas traen razones **comprobadas**:
+`SIN_HORARIO`, pero igual se informa el nivel que sí se alcanza (el 0: se puede armar
+un horario sin esa materia) y la prioridad como criterio que falla. Las materias omitidas traen razones **comprobadas**:
 `supera creditosMax`, `sin cupos`, `se cruza con X, Y`, `sin grupos en el catálogo`.
 
-Cada ejecución devuelve **a lo sumo 5000 horarios**. Si hay más, se marca
-`truncado` y la web avisa (así no se bloquea el navegador).
+Se devuelven **todos** los horarios (el enunciado lo pide): no hay tope oculto. Si
+quien llama pide un límite, se marca `truncado`. Para que miles de horarios no
+saturen la red, la API manda cada horario compacto (ids de grupo, créditos y
+omitidas; ~1,8 MB para 16 384 horarios) y la pantalla arma el detalle de los que
+muestra (50 a la vez, con "Mostrar más") usando el catálogo del archivo.
 
 ---
 
@@ -238,8 +247,22 @@ Cada ejecución devuelve **a lo sumo 5000 horarios**. Si hay más, se marca
 
 ## 7. La aplicación web
 
-Flujo: **inicio de sesión → mis horarios guardados → subir JSON → lista de
+Flujo: **registro / inicio de sesión → mis horarios guardados → subir JSON → lista de
 horarios generados → calendario semanal → guardar o descargar.**
+
+**Login real con Supabase.** La persona se registra o entra con correo y contraseña
+(Supabase Auth). El navegador recibe un *token* y lo manda en cada llamada a la API;
+el servidor le pregunta a Supabase quién es y **nunca confía en un id que mande el
+navegador**: el dueño de un horario y la lista de guardados salen siempre del token.
+Los datos (usuarios, horarios guardados, participantes) están en la base PostgreSQL de
+Supabase, con RLS activado y sin políticas, de modo que la clave pública no puede leer
+las tablas directamente. Las contraseñas las guarda Supabase como *hash*; la aplicación
+nunca las ve ni las almacena.
+
+**Cambio de usuario desde el perfil.** El menú del perfil (arriba a la derecha) lista las
+cuentas con las que ya se entró en ese navegador; con un clic se cambia de una a otra sin
+volver a escribir la contraseña, y "Agregar otra cuenta" abre el login. "Cerrar sesión"
+cierra solo la cuenta actual. Se guardan solo los tokens de sesión, nunca contraseñas.
 
 1. **Subir JSON:** al elegir el archivo se valida **de inmediato**. Si hay errores,
    se muestra el número de errores y la lista completa **agrupada por bloque**
@@ -252,7 +275,11 @@ horarios generados → calendario semanal → guardar o descargar.**
 3. **Calendario semanal:** lunes a sábado, un bloque por sesión con materia, grupo
    y profesor.
 4. **Guardar / descargar:** cada horario se puede guardar y descargar en JSON o TXT;
-   también se puede descargar **todo el resultado**.
+   también se puede descargar **todo el resultado**. Los textos se arman al pulsar el
+   botón (no viajan con el resultado). Al guardar, el servidor **vuelve a verificar**
+   el horario: el grupo existe y es de esa materia, no hay cruces, y cumple el nivel
+   declarado; lo que se guarda se reconstruye desde el catálogo, no se confía en lo que
+   mande el navegador.
 
 **Formatos de salida** (sección 2.3 del informe): el JSON trae `estudianteId`,
 `estado`, `criteriosActivos`, `motivo` y la lista de `horarios` (con `materias`,
@@ -275,21 +302,28 @@ para no caer si preguntan "¿y por qué así?".
    o `SIN_HORARIO`", y las pantallas hablan de "nivel alcanzado" y "criterios no
    cumplidos". Hicimos **ambas cosas**: el estado es `SIN_HORARIO` y además se informa
    hasta qué nivel se llegó.
-5. **`criteriosNoCumplidos`** lista los niveles por encima del alcanzado; el primero
-   es el que realmente bloqueó, los demás ya no se pudieron verificar.
+5. **`criteriosNoCumplidos`**: el primero es el nivel siguiente al alcanzado (el que
+   bloquea); de los demás solo se listan los que **ningún** horario del nivel alcanzado
+   cumple por sí solo. Un criterio que sí se cumple no se reporta como fallido, y los
+   que el estudiante no declaró nunca aparecen.
 6. **Hora estricta `HH:MM`** (dos dígitos) en el archivo de entrada; internamente
    minutos. `inscritos` es opcional; `semestre` es obligatorio.
 7. **Una materia con sesiones que se pisan dentro del mismo grupo** es un archivo
    inválido (`RANGO_INVALIDO`), no se "arregla" en silencio.
-8. **Tope de 5000 horarios** por ejecución, para proteger al navegador (se avisa).
+8. **Sin tope de horarios:** el informe pide todos. La respuesta es compacta y la
+   pantalla pagina de 50 en 50; un límite es opcional (`limite`) y, si se usa, se avisa.
 
 **Límites actuales (decirlos con honestidad):**
 
-- El acceso con correo y contraseña **no está implementado**: hay un selector de
-  usuarios de prueba. El informe contemplaba autenticación real; eso queda como
-  trabajo futuro.
-- La base de datos del repositorio es **PostgreSQL local** (con Docker), no
-  Supabase como decía el diseño de la Entrega 1.
+- El login es **real** (Supabase Auth, correo y contraseña) y la base de datos está en
+  **Supabase**, como decía el diseño de la Entrega 1. Para el proyecto de curso:
+  la confirmación de correo está desactivada (se entra directo al registrarse) y todos
+  los usuarios registrados ven el nombre y el correo de los demás al elegir
+  participantes. En producción se limitaría.
+- Si no hay variables de Supabase, la app cae a un **modo local** con usuarios de
+  demostración y PostgreSQL en Docker; sirve para trabajar sin internet.
+- Las cuentas recordadas para cambiar de usuario viven en el navegador (localStorage);
+  en un computador compartido conviene usar "Cerrar sesión".
 - El algoritmo y la API están probados automáticamente; la interfaz se compiló
   (`next build`) pero conviene recorrerla a mano antes de la sustentación.
 
@@ -318,7 +352,16 @@ uno con código, ruta, qué se esperaba y qué se encontró.
 
 **¿Qué pasa si no existe ningún horario?**
 Estado `SIN_HORARIO` con el motivo, el nivel alcanzado, los criterios no cumplidos
-y los mejores horarios hasta ese nivel.
+y los mejores horarios hasta ese nivel. El criterio que bloquea es el siguiente al
+nivel alcanzado; los demás que se listan son los que ningún horario de ese nivel cumple.
+
+**¿Validar el archivo ejecuta el algoritmo?**
+No. La pantalla "Subir JSON" solo valida (parsea y revisa los 9 códigos de error);
+la búsqueda se ejecuta solo al pulsar "Ejecutar algoritmo".
+
+**¿Y si alguien manipula lo que manda el navegador al guardar?**
+El servidor vuelve a validar el archivo y comprueba el horario contra el catálogo y el
+nivel declarado; guarda una versión reconstruida, no la que llegó.
 
 **¿Qué diferencia hay entre alta, media y baja?**
 Alta: obligatoria. Media y baja: se pueden omitir, pero solo si de verdad no cabían;
@@ -341,9 +384,22 @@ una llave estable.
 Un solo lenguaje para el algoritmo, la API y la interfaz; el algoritmo es TypeScript
 puro, sin dependencias, y se prueba solo.
 
+**¿Cómo manejan el login y la seguridad?**
+Supabase Auth con correo y contraseña. El navegador manda un token y el servidor lo
+verifica con Supabase en cada llamada; el dueño de los datos sale del token, no de lo
+que diga el navegador. La contraseña de la base de datos y la clave de servicio nunca
+van al navegador ni a Git (solo la URL y la clave *publishable*, que son públicas por
+diseño). Las tablas tienen RLS activado sin políticas.
+
+**¿Cómo cambian de usuario?**
+El menú del perfil guarda en el navegador las cuentas con las que se entró (solo
+tokens, no contraseñas) y cambia de sesión con un clic; "Agregar otra cuenta" abre el
+login.
+
 **¿Qué mejorarían?**
-Autenticación real, base de datos en la nube, paginación de resultados enormes,
-y una heurística para ordenar por más criterios (huecos, amigos) además del profesor.
+Paginación de resultados enormes, una heurística para ordenar por más criterios
+(huecos, amigos) además del profesor, limitar qué usuarios se ven entre sí y activar
+la confirmación de correo en producción.
 
 ---
 
@@ -365,17 +421,24 @@ Los archivos de ejemplo están en `datos/sinteticos/` (los genera
 6. **Descarga:** bajar el JSON y el TXT de un horario y el resultado completo.
 7. **Sin solución:** (opcional) editar `valido-pequeno.json` poniendo los seis días en
    `diasLibres` y subirlo, para mostrar `SIN_HORARIO`, el motivo y el nivel alcanzado.
-8. **Pruebas:** en la terminal, `pnpm test` → 44 pruebas en verde.
+8. **Login y cambio de usuario:** registrarse (o entrar), abrir el menú del perfil,
+   "Agregar otra cuenta" y cambiar entre las dos; mostrar que cada una ve sus propios
+   horarios guardados.
+9. **Pruebas:** en la terminal, `pnpm test` → 58 pruebas en verde.
 
 **Cómo correr todo en la máquina:**
 
 ```bash
 pnpm install
-pnpm test            # pruebas del algoritmo (sin Docker)
+pnpm test            # pruebas del algoritmo (sin Docker ni internet)
 pnpm datos:generar   # regenera datos/sinteticos
-docker compose up -d --wait db   # PostgreSQL local (solo para guardar horarios)
 pnpm dev             # la aplicación en http://localhost:3000
 ```
+
+Con Supabase hace falta un `.env.local` con `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` y `DATABASE_URL` (ver `docs/supabase.md`; ese
+archivo no se sube a Git). **Sin ese archivo** la app arranca en modo local: levantar
+antes `docker compose up -d --wait db` para tener PostgreSQL con usuarios de demostración.
 
 ---
 
@@ -390,6 +453,7 @@ repartir el **repaso profundo** para detectar dudas entre los tres:
 | Niveles y reglas | `niveles.ts`, sección 4 |
 | Búsqueda, orden y resultado | `generador.ts`, secciones 5 y 6 |
 | Web, API y exportación | `ejecutar-archivo.ts`, `exportar.ts`, `schedule-workspace.tsx` |
+| Login, Supabase y cambio de usuario | `src/infrastructure/supabase/`, `app/api/me/route.ts`, `docs/supabase.md`, sección 7 |
 
 Ejercicio recomendado: cada uno toma un caso de `tests/algoritmo.test.mjs`, lo lee
 y se lo explica a los otros dos sin mirar el código.

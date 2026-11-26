@@ -6,7 +6,27 @@
  * el archivo es inválido se agrega la lista `errores`.
  */
 import { formatearHora } from "./validacion.ts";
-import type { Catalogo, Horario, Resultado } from "./modelo.ts";
+import type { Catalogo, Grupo, Horario, Materia, Profesor, Resultado } from "./modelo.ts";
+
+/** Los datos del catálogo ya indexados por id (se arman una vez y se reutilizan en cada horario). */
+export type IndiceCatalogo = {
+  materias: Map<string, Materia>;
+  grupos: Map<string, Grupo>;
+  profesores: Map<string, Profesor>;
+};
+
+/** Indexa el catálogo una sola vez: buscar en las listas por cada línea del TXT sería cuadrático. */
+export function indexarCatalogo(catalogo: Catalogo): IndiceCatalogo {
+  return {
+    materias: new Map(catalogo.materias.map((m) => [m.id, m])),
+    grupos: new Map(catalogo.grupos.map((g) => [g.id, g])),
+    profesores: new Map(catalogo.profesores.map((p) => [p.id, p])),
+  };
+}
+
+function comoIndice(catalogo: Catalogo | IndiceCatalogo): IndiceCatalogo {
+  return catalogo.materias instanceof Map ? (catalogo as IndiceCatalogo) : indexarCatalogo(catalogo as Catalogo);
+}
 
 /** Forma de un horario en el JSON de salida: `materias` en lugar de `asignaciones`. */
 function horarioAJson(horario: Horario) {
@@ -41,15 +61,15 @@ export function exportarJSON(resultado: Resultado): string {
 }
 
 /** Lista de líneas de un horario en el TXT (sin la línea del título). */
-function lineasDeHorario(horario: Horario, catalogo: Catalogo): string[] {
+function lineasDeHorario(horario: Horario, indice: IndiceCatalogo): string[] {
   const lineas = [
     `Horario ${horario.id} (${horario.creditosTotales} ${horario.creditosTotales === 1 ? "crédito" : "créditos"})`,
   ];
 
   for (const asignacion of horario.asignaciones) {
-    const materia = catalogo.materias.find((m) => m.id === asignacion.materiaId);
-    const grupo = catalogo.grupos.find((g) => g.id === asignacion.grupoId);
-    const profesor = catalogo.profesores.find((p) => p.id === grupo?.profesorId);
+    const materia = indice.materias.get(asignacion.materiaId);
+    const grupo = indice.grupos.get(asignacion.grupoId);
+    const profesor = grupo ? indice.profesores.get(grupo.profesorId) : undefined;
 
     lineas.push(`  ${asignacion.materiaId}  ${materia?.nombre ?? ""}  grupo ${asignacion.grupoId}`);
     lineas.push(`    profesor ${profesor?.nombre ?? grupo?.profesorId ?? ""}`);
@@ -72,8 +92,12 @@ function lineasDeHorario(horario: Horario, catalogo: Catalogo): string[] {
  * ExportarTXT: texto plano del resultado. Necesita el catálogo para escribir
  * nombres de materias y profesores y las sesiones de cada grupo.
  */
-export function exportarTXT(resultado: Resultado, catalogo: Catalogo | null): string {
+export function exportarTXT(
+  resultado: Resultado,
+  catalogo: Catalogo | IndiceCatalogo | null,
+): string {
   const lineas: string[] = [];
+  const indice = catalogo ? comoIndice(catalogo) : null;
 
   if (resultado.estado === "ARCHIVO_INVALIDO") {
     lineas.push("ARCHIVO INVÁLIDO");
@@ -99,21 +123,21 @@ export function exportarTXT(resultado: Resultado, catalogo: Catalogo | null): st
     if (resultado.criteriosNoCumplidos.length) {
       lineas.push(`Criterios no cumplidos: ${resultado.criteriosNoCumplidos.join(", ")}`);
     }
-    if (catalogo && resultado.horariosNivelAlcanzado.length) {
+    if (indice && resultado.horariosNivelAlcanzado.length) {
       lineas.push(`Horarios del nivel alcanzado: ${resultado.horariosNivelAlcanzado.length}`);
       for (const horario of resultado.horariosNivelAlcanzado) {
         lineas.push("");
-        lineas.push(...lineasDeHorario(horario, catalogo));
+        lineas.push(...lineasDeHorario(horario, indice));
       }
     }
     return `${lineas.join("\n")}\n`;
   }
 
   lineas.push(`Total de horarios: ${resultado.horarios.length}`);
-  if (catalogo) {
+  if (indice) {
     for (const horario of resultado.horarios) {
       lineas.push("");
-      lineas.push(...lineasDeHorario(horario, catalogo));
+      lineas.push(...lineasDeHorario(horario, indice));
     }
   }
   return `${lineas.join("\n")}\n`;
@@ -123,14 +147,14 @@ export function exportarTXT(resultado: Resultado, catalogo: Catalogo | null): st
 export function exportarHorarioTXT(
   resultado: Resultado,
   horario: Horario,
-  catalogo: Catalogo,
+  catalogo: Catalogo | IndiceCatalogo,
 ): string {
   const cabecera = [
     `HORARIO ${horario.id} PARA ${resultado.estudianteId}`,
     `Criterios activos: ${resultado.criteriosActivos.length ? resultado.criteriosActivos.join(", ") : "ninguno"}`,
     "",
   ];
-  return `${[...cabecera, ...lineasDeHorario(horario, catalogo)].join("\n")}\n`;
+  return `${[...cabecera, ...lineasDeHorario(horario, comoIndice(catalogo))].join("\n")}\n`;
 }
 
 /** JSON de un solo horario, con la misma forma que en la lista de resultados. */

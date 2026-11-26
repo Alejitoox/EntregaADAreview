@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { pool } from "../../../src/infrastructure/postgres/pool";
-import type { GeneratedSchedule } from "../../../src/application/scheduling/prepare-level-zero";
+import { verificarHorarioGuardado } from "../../../src/application/scheduling/validar-horario-guardado";
 import { authEnabled } from "../../../src/infrastructure/supabase/config";
 import { usuarioAutenticado } from "../../../src/infrastructure/supabase/usuario-autenticado";
 
@@ -108,10 +108,18 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const savedSchedule = body.schedule as GeneratedSchedule;
-  if (!savedSchedule || !Array.isArray(savedSchedule.courses)) {
-    return NextResponse.json({ error: "La estructura del horario no es válida." }, { status: 400 });
+  // Se comprueba que el horario sea real y cumpla el nivel declarado; se guarda la versión
+  // reconstruida desde el catálogo del archivo, no lo que mandó el navegador.
+  const verificado = verificarHorarioGuardado({
+    sourceJson: body.sourceJson,
+    schedule: body.schedule,
+    level: body.level,
+    title: body.title.trim(),
+  });
+  if (!verificado.ok) {
+    return NextResponse.json({ error: verificado.error }, { status: 400 });
   }
+  const savedSchedule = verificado.horario;
 
   const client = await pool.connect();
   try {

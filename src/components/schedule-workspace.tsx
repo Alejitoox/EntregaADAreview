@@ -6,6 +6,12 @@ import type { ErrorValidacion } from "../domain/scheduling/modelo";
 import { supabaseBrowser } from "../infrastructure/supabase/browser";
 import { authEnabled } from "../infrastructure/supabase/config";
 import {
+  datosDeFuente,
+  textoDeHorario,
+  textoDeResultado,
+} from "../application/scheduling/exportar-bajo-demanda.ts";
+import { vistaDeCompacto, type HorarioCompacto } from "../application/scheduling/ejecutar-archivo.ts";
+import {
   guardarCuenta,
   leerCuentas,
   quitarCuenta,
@@ -547,7 +553,7 @@ function Home({ setView, user }: { setView: (view: View) => void; user: User }) 
 
 /** Lo que se guarda y se dibuja de un horario; `HorarioVista` lo cumple completo. */
 type ScheduleData = Pick<HorarioVista, "name" | "courses"> &
-  Partial<Pick<HorarioVista, "materias" | "creditosTotales" | "omitidas" | "json" | "txt">>;
+  Partial<Pick<HorarioVista, "materias" | "creditosTotales" | "omitidas">>;
 
 type SavedSchedule = {
   id: string;
@@ -818,6 +824,8 @@ function criterionLabel(name: string) {
   return CRITERION_LABELS[name] ?? name;
 }
 
+const PAGINA_DE_HORARIOS = 50;
+
 function ScheduleCards({
   schedules,
   source,
@@ -828,7 +836,7 @@ function ScheduleCards({
   onCalendar,
   indexOffset = 0,
 }: {
-  schedules: HorarioVista[];
+  schedules: HorarioCompacto[];
   source: unknown;
   nivel: number;
   savedIndices: Set<string>;
@@ -837,9 +845,16 @@ function ScheduleCards({
   onCalendar: (item: ScheduleView) => void;
   indexOffset?: number;
 }) {
+  // Con muchos horarios no se dibujan todos de una vez: se muestran por tandas, y el
+  // detalle de cada uno se arma aquí con el catálogo del archivo (el servidor solo manda ids).
+  const [visibles, setVisibles] = useState(PAGINA_DE_HORARIOS);
+  const indice = datosDeFuente(source)?.indice ?? null;
+  const detallados = indice
+    ? schedules.slice(0, visibles).map((horario) => vistaDeCompacto(horario, indice))
+    : [];
   return (
     <div className="schedule-list">
-      {schedules.map((schedule) => {
+      {detallados.map((schedule) => {
         const key = `${indexOffset}-${schedule.id}`;
         const item: ScheduleView = { title: schedule.name, level: nivel, schedule, source };
         const saved = savedIndices.has(key);
@@ -882,6 +897,13 @@ function ScheduleCards({
           </article>
         );
       })}
+      {visibles < schedules.length && (
+        <div className="actions">
+          <Button onClick={() => setVisibles((actual) => actual + PAGINA_DE_HORARIOS)}>
+            Mostrar más ({schedules.length - visibles} restantes)
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -947,19 +969,20 @@ function Generated({
                 <p>
                   <b>Criterios no cumplidos:</b>{" "}
                   {result.criteriosNoCumplidos.map(criterionLabel).join(", ")}. El primero es el que
-                  impidió avanzar; los siguientes ya no se pudieron verificar.
+                  impidió avanzar; los demás no los cumple ninguno de los horarios del nivel
+                  alcanzado.
                 </p>
               )}
             </section>
           )}
           {result.truncado && (
             <p className="footnote">
-              Hay más horarios válidos de los que se muestran: se listan solo los primeros (los
-              mejor ordenados).
+              Se pidió un límite de horarios y hay más que no se listan: solo aparecen los primeros
+              encontrados.
             </p>
           )}
           <div className="actions result-downloads">
-            <ResultDownloads result={result} />
+            <ResultDownloads result={result} source={source} />
           </div>
           {ok && (
             <ScheduleCards
@@ -1005,14 +1028,21 @@ function Generated({
   );
 }
 
-function ResultDownloads({ result }: { result: RespuestaGeneracion }) {
+function ResultDownloads({ result, source }: { result: RespuestaGeneracion; source: unknown }) {
   const name = `horarios-${result.estudianteId ?? "estudiante"}`;
+  // El texto se arma al pulsar el botón, no al recibir el resultado (puede ser enorme).
   return (
     <>
-      <Button icon="download" onClick={() => downloadText(`${name}.json`, result.descargas.json)}>
+      <Button
+        icon="download"
+        onClick={() => downloadText(`${name}.json`, textoDeResultado("json", result, source))}
+      >
         Descargar todo (JSON)
       </Button>
-      <Button icon="download" onClick={() => downloadText(`${name}.txt`, result.descargas.txt)}>
+      <Button
+        icon="download"
+        onClick={() => downloadText(`${name}.txt`, textoDeResultado("txt", result, source))}
+      >
         Descargar todo (TXT)
       </Button>
     </>
@@ -1246,10 +1276,10 @@ function downloadText(fileName: string, content: string) {
 
 function DownloadButtons({ item, fullLabel = false }: { item: ScheduleView; fullLabel?: boolean }) {
   function download(extension: "json" | "txt") {
-    const { json, txt } = item.schedule;
-    let content = extension === "json" ? json : txt;
-    if (content === undefined) {
-      // Horarios guardados antes del algoritmo completo: no traen los textos exportados.
+    // Se arma al pulsar el botón, con el mismo exportador del dominio que usan las pruebas.
+    let content = textoDeHorario(extension, item.schedule, item.source);
+    if (content === null) {
+      // Archivo de origen ilegible (horarios guardados muy antiguos): texto simple de respaldo.
       const catalog = catalogEntries(item.source);
       const lines = item.schedule.courses.flatMap((course) => [
         `${catalog.get(course.courseId)?.name ?? course.courseId} · Grupo ${course.sectionId}`,

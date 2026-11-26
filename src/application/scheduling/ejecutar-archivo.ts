@@ -4,24 +4,24 @@
  * respuesta lista para enviar al navegador (todo serializable).
  *
  * La interfaz no repite ninguna regla del algoritmo: solo dibuja lo que llega aquí.
+ *
+ * La respuesta es COMPACTA: cada horario trae solo los ids de sus grupos, los
+ * créditos y las materias omitidas. Con todos los horarios posibles (puede haber
+ * decenas de miles) el detalle completo pesaría decenas de MB y no cabría en una
+ * respuesta de Vercel (4,5 MB). La pantalla arma el detalle de los horarios que
+ * muestra con el catálogo del archivo que ella misma subió (`vistaDeCompacto`), y los
+ * textos de descarga también se arman bajo demanda (`exportar-bajo-demanda.ts`).
  */
-import { ejecutar, LIMITE_POR_DEFECTO } from "../../domain/scheduling/generador.ts";
-import {
-  exportarHorarioJSON,
-  exportarHorarioTXT,
-  exportarJSON,
-  exportarTXT,
-} from "../../domain/scheduling/exportar.ts";
+import { ejecutar, SIN_LIMITE } from "../../domain/scheduling/generador.ts";
 import {
   DIAS,
-  type Catalogo,
   type ErrorValidacion,
   type EstadoResultado,
   type Horario,
   type Omitida,
-  type Resultado,
 } from "../../domain/scheduling/modelo.ts";
-import { validarEntrada } from "../../domain/scheduling/validacion.ts";
+import type { IndiceCatalogo } from "../../domain/scheduling/exportar.ts";
+import { parsearJson, validarEntrada, ErrorDeValidacion } from "../../domain/scheduling/validacion.ts";
 
 /** Una sesión lista para dibujar: día 1 (lunes) a 6 (sábado), minutos desde medianoche. */
 export type SesionVista = { day: string; startMinute: number; endMinute: number };
@@ -46,8 +46,15 @@ export type HorarioVista = {
   materias: MateriaVista[];
   creditosTotales: number;
   omitidas: Omitida[];
-  json: string;
-  txt: string;
+};
+
+/** Un horario tal como viaja del servidor a la pantalla: lo mínimo para reconstruirlo. */
+export type HorarioCompacto = {
+  id: number;
+  /** Ids de los grupos elegidos (cada grupo ya dice de qué materia es). */
+  grupos: string[];
+  creditosTotales: number;
+  omitidas: Omitida[];
 };
 
 export type RespuestaGeneracion = {
@@ -59,21 +66,36 @@ export type RespuestaGeneracion = {
   nivelAlcanzado: number | null;
   criteriosNoCumplidos: string[];
   truncado: boolean;
-  horarios: HorarioVista[];
-  horariosNivelAlcanzado: HorarioVista[];
-  /** Resultado completo, para el botón de descarga de la lista. */
-  descargas: { json: string; txt: string };
+  horarios: HorarioCompacto[];
+  horariosNivelAlcanzado: HorarioCompacto[];
 };
 
-function vistaDeHorario(horario: Horario, resultado: Resultado, catalogo: Catalogo): HorarioVista {
-  const materias: MateriaVista[] = horario.asignaciones.map((asignacion) => {
-    const grupo = catalogo.grupos.find((g) => g.id === asignacion.grupoId);
-    const materia = catalogo.materias.find((m) => m.id === asignacion.materiaId);
-    const profesor = catalogo.profesores.find((p) => p.id === grupo?.profesorId);
+export function compactar(horario: Horario): HorarioCompacto {
+  return {
+    id: horario.id,
+    grupos: horario.asignaciones.map((a) => a.grupoId),
+    creditosTotales: horario.creditosTotales,
+    omitidas: horario.omitidas,
+  };
+}
+
+/**
+ * Detalle de un horario para dibujarlo (materias, profesor, sesiones). Necesita solo
+ * los índices del catálogo, así que corre igual en el servidor y en el navegador.
+ */
+export function vistaDeCompacto(
+  horario: HorarioCompacto,
+  indice: Pick<IndiceCatalogo, "materias" | "grupos" | "profesores">,
+): HorarioVista {
+  const materias: MateriaVista[] = horario.grupos.map((grupoId) => {
+    const grupo = indice.grupos.get(grupoId);
+    const materiaId = grupo?.materiaId ?? "";
+    const materia = indice.materias.get(materiaId);
+    const profesor = grupo ? indice.profesores.get(grupo.profesorId) : undefined;
     return {
-      courseId: asignacion.materiaId,
-      nombre: materia?.nombre ?? asignacion.materiaId,
-      sectionId: asignacion.grupoId,
+      courseId: materiaId,
+      nombre: materia?.nombre ?? materiaId,
+      sectionId: grupoId,
       profesor: profesor?.nombre ?? grupo?.profesorId ?? "",
       creditos: materia?.creditos ?? 0,
       meetings: (grupo?.sesiones ?? []).map((sesion) => ({
@@ -95,20 +117,18 @@ function vistaDeHorario(horario: Horario, resultado: Resultado, catalogo: Catalo
     materias,
     creditosTotales: horario.creditosTotales,
     omitidas: horario.omitidas,
-    json: exportarHorarioJSON(resultado, horario),
-    txt: exportarHorarioTXT(resultado, horario, catalogo),
   };
 }
 
-/** Valida y ejecuta. Nunca lanza por datos inválidos: devuelve ARCHIVO_INVALIDO. */
+/**
+ * Valida y ejecuta. Nunca lanza por datos inválidos: devuelve ARCHIVO_INVALIDO.
+ * Sin `limite` se devuelven todos los horarios; un límite solo se usa si se pide.
+ */
 export function generarDesdeArchivo(
   fuente: unknown,
-  limite: number = LIMITE_POR_DEFECTO,
+  limite: number = SIN_LIMITE,
 ): RespuestaGeneracion {
-  const { resultado, instancia } = ejecutar(fuente, limite);
-  const catalogo = instancia?.catalogo ?? null;
-  const vistas = (horarios: Horario[]) =>
-    catalogo ? horarios.map((h) => vistaDeHorario(h, resultado, catalogo)) : [];
+  const { resultado } = ejecutar(fuente, limite);
 
   return {
     estado: resultado.estado,
@@ -119,16 +139,24 @@ export function generarDesdeArchivo(
     nivelAlcanzado: resultado.nivelAlcanzado,
     criteriosNoCumplidos: resultado.criteriosNoCumplidos,
     truncado: resultado.truncado,
-    horarios: vistas(resultado.horarios),
-    horariosNivelAlcanzado: vistas(resultado.horariosNivelAlcanzado),
-    descargas: { json: exportarJSON(resultado), txt: exportarTXT(resultado, catalogo) },
+    horarios: resultado.horarios.map(compactar),
+    horariosNivelAlcanzado: resultado.horariosNivelAlcanzado.map(compactar),
   };
 }
 
-/** Solo valida (pantalla "Subir JSON"): devuelve la lista completa de errores. */
+/**
+ * Solo valida (pantalla "Subir JSON"): devuelve la lista completa de errores.
+ * NO ejecuta el algoritmo: validar un archivo grande no debe costar una búsqueda.
+ */
 export function validarArchivo(fuente: unknown): { errores: ErrorValidacion[] } {
+  let valor: unknown = fuente;
   if (typeof fuente === "string") {
-    return { errores: ejecutar(fuente).resultado.errores };
+    try {
+      valor = parsearJson(fuente);
+    } catch (error) {
+      if (error instanceof ErrorDeValidacion) return { errores: error.errores };
+      throw error;
+    }
   }
-  return { errores: validarEntrada(fuente).errores };
+  return { errores: validarEntrada(valor).errores };
 }

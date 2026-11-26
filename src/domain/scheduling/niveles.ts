@@ -60,7 +60,7 @@ function creditosDeMateria(materiaId: string, instancia: Instancia): number {
 }
 
 function solicitadaDe(materiaId: string, instancia: Instancia): MateriaSolicitada | undefined {
-  return instancia.estudiante.materias.find((m) => m.materiaId === materiaId);
+  return instancia.solicitadasPorId.get(materiaId);
 }
 
 /** Verdadero si algún par de grupos de la selección tiene sesiones que se cruzan. */
@@ -99,9 +99,11 @@ export function huecosDelDia(seleccion: Seleccion, dia: Dia): number[] {
 export function contarCoincidenciasAmigos(seleccion: Seleccion, instancia: Instancia): number {
   let coincidencias = 0;
   for (const grupo of seleccion) {
-    for (const amigo of instancia.estudiante.amigos) {
-      if (grupoEstaInscrito(grupo, amigo)) coincidencias += 1;
-    }
+    // Se calculó una vez por grupo al preprocesar (con conjuntos); el respaldo cubre
+    // grupos que no vienen del catálogo de la instancia.
+    coincidencias +=
+      instancia.coincidenciasAmigosPorGrupo.get(grupo.id) ??
+      instancia.estudiante.amigos.filter((amigo) => grupoEstaInscrito(grupo, amigo)).length;
   }
   return coincidencias;
 }
@@ -268,6 +270,35 @@ export function cumpleNivel(nivel: number, seleccion: Seleccion, instancia: Inst
   if (nivel >= 7 && !cumpleNivel7(seleccion, instancia)) return false;
   if (nivel >= 8 && !cumpleNivel8(seleccion, instancia)) return false;
   return true;
+}
+
+/**
+ * Solo el predicado del nivel k, sin exigir los anteriores. Sirve para
+ * diagnosticar: saber si un criterio concreto se cumple por sí mismo.
+ */
+export function cumpleSoloNivel(nivel: number, seleccion: Seleccion, instancia: Instancia): boolean {
+  switch (nivel) {
+    case 0:
+      return cumpleNivel0(seleccion);
+    case 1:
+      return cumpleNivel1(seleccion, instancia);
+    case 2:
+      return cumpleNivel2(seleccion, instancia);
+    case 3:
+      return cumpleNivel3(seleccion);
+    case 4:
+      return cumpleNivel4(seleccion, instancia);
+    case 5:
+      return cumpleNivel5(seleccion, instancia);
+    case 6:
+      return cumpleNivel6(seleccion, instancia);
+    case 7:
+      return cumpleNivel7(seleccion, instancia);
+    case 8:
+      return cumpleNivel8(seleccion, instancia);
+    default:
+      throw new RangeError("El nivel debe ser un entero entre 0 y 8");
+  }
 }
 
 /* ------------------------------------------------------------------ */

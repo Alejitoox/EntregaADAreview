@@ -12,8 +12,10 @@
   (`scheduling/modelo`, `validacion`, `niveles`, `generador`, `exportar`). Ver
   `docs/algorithms/algoritmo-completo.md`. No depende de React, Docker ni
   PostgreSQL.
-- **Infraestructura (`src/infrastructure/postgres`, `database`)**: encapsula el
-  pool de PostgreSQL, el esquema, las migraciones y los datos de desarrollo.
+- **Infraestructura (`src/infrastructure/postgres`, `src/infrastructure/supabase`,
+  `database`)**: encapsula el pool de PostgreSQL, el esquema, las migraciones, los
+  datos de desarrollo y la integración con Supabase Auth (verificación del token en
+  el servidor, cliente del navegador y cuentas recordadas).
 
 La interfaz permite seleccionar un usuario propietario y varios participantes.
 El resultado (niveles 0 a 8) se calcula para el estudiante del JSON de entrada;
@@ -23,7 +25,8 @@ de origen para que futuras etapas puedan volver a procesarlo.
 
 ## Relación entre usuarios y horarios
 
-`app_user` registra usuarios locales de desarrollo. `user_schedule` registra
+`app_user` registra los usuarios (en modo Supabase, su `user_id` es el id de Supabase
+Auth; en modo local, usuarios de desarrollo). `user_schedule` registra
 el resultado JSON, el archivo JSON de origen, el nivel alcanzado y su creador.
 `schedule_participant` permite agregar varios usuarios al horario compartido.
 La API inserta el horario y sus participantes dentro de una sola transacción.
@@ -34,7 +37,9 @@ Las versiones de catálogo viven en `catalog_dataset`. Los casos con cantidad
 esperada de horarios viven aparte en `level_zero_test_case`, para que los datos
 de verificación no formen parte del modelo de horarios de la aplicación.
 
-El esquema y los dos usuarios de ejemplo son locales para desarrollo. La
-interfaz usa la API de Next.js; las rutas de servidor son las únicas que abren
-conexiones PostgreSQL. El selector local no representa autenticación real, que
-se integrará en una etapa posterior.
+La aplicación funciona en dos modos (ver `docs/supabase.md`). Con las variables de
+Supabase hay **login real** (Supabase Auth) y la base de datos vive en Supabase; sin
+ellas, un modo local usa PostgreSQL en Docker y usuarios de demostración. En ambos
+casos la interfaz usa la API de Next.js y las rutas de servidor son las únicas que
+abren conexiones PostgreSQL; en modo Supabase el servidor toma la identidad del token,
+no de lo que envíe el navegador.

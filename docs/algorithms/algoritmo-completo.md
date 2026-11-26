@@ -65,9 +65,16 @@ Se ordenan primero las materias obligatorias y las que tienen menos candidatos
 
 - `OK`: hay al menos un horario que cumple los 9 niveles.
 - `SIN_HORARIO`: ninguno cumple todo. Se informa `motivo`, `nivelAlcanzado` (el
-  mayor nivel `k` con algún horario), `criteriosNoCumplidos` (los niveles por
-  encima de `k`; el primero es el que impidió avanzar) y los horarios de ese
-  nivel (`horariosNivelAlcanzado`).
+  mayor nivel `k` con algún horario; `-1` si ni siquiera el nivel 0), `criteriosNoCumplidos`
+  y los horarios de ese nivel (`horariosNivelAlcanzado`). En `criteriosNoCumplidos`
+  el primero es el nivel `k+1`, que es el que bloquea; de los siguientes solo se
+  informan los que **ninguno** de los horarios del nivel `k` cumple por sí solo. Los
+  criterios no declarados por el estudiante nunca aparecen. Una materia alta sin
+  grupos en el catálogo no impide llegar al nivel 0 (se puede armar un horario sin
+  ella); lo que falla es el nivel 1 (prioridad).
+  Para hallar `k` no se prueban los niveles uno por uno: como cada nivel incluye al
+  anterior, "el nivel tiene horarios" es verdadero hasta cierto punto y falso después,
+  y una búsqueda binaria lo encuentra con unas 3 búsquedas.
 - `ARCHIVO_INVALIDO`: lista de errores `{codigo, ruta, mensaje, esperado, encontrado}`.
 
 Orden: suma de las posiciones de los profesores asignados (primera opción = 0,
@@ -75,8 +82,10 @@ segunda = 1…); a igual suma, por una llave canónica estable. Después se nume
 `Horario 1, 2, 3…`. Cada horario omitido lleva razones comprobadas
 (`supera creditosMax`, `sin cupos`, `se cruza con X, Y`, `sin grupos en el catálogo`).
 
-Se devuelven como máximo 5000 horarios por ejecución (`LIMITE_POR_DEFECTO`); si
-hay más, `truncado = true` y la interfaz lo avisa.
+Se devuelven **todos** los horarios: no hay tope. Quien llama puede pedir un límite
+(parámetro opcional `limite`) y entonces `truncado = true` si había más. La respuesta
+de la API es compacta (ids de grupo por horario) y el detalle y los textos de descarga
+se arman en la pantalla bajo demanda, así que miles de horarios no saturan la red.
 
 ## Complejidad
 

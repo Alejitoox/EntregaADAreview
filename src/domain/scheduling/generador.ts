@@ -31,6 +31,7 @@ import {
   creditosTotales,
   cumpleNivel,
   cumpleNivel3,
+  cumpleSoloNivel,
   grupoCabeEnFranja,
   grupoCumpleProfesor,
   grupoRespetaDiasLibres,
@@ -43,8 +44,11 @@ import {
 import { preprocesar, RAZON_SIN_GRUPOS, type Instancia } from "./preprocesamiento.ts";
 import { ErrorDeValidacion, parsearJson, validarEntrada } from "./validacion.ts";
 
-/** Tope de horarios que devuelve una ejecución (protege al navegador de listas enormes). */
-export const LIMITE_POR_DEFECTO = 5000;
+/**
+ * Sin tope: el enunciado pide TODOS los horarios válidos. Un tope solo se usa si
+ * quien llama lo pide expresamente (por ejemplo, para una vista previa).
+ */
+export const SIN_LIMITE = Number.POSITIVE_INFINITY;
 
 export type BusquedaNivel = { selecciones: Grupo[][]; truncado: boolean };
 
@@ -67,12 +71,12 @@ function candidatosDe(materiaId: string, nivel: number, instancia: Instancia): G
 /**
  * Todos los horarios (como listas de grupos) que cumplen los niveles 0 a
  * `nivel`. Nunca incluye el horario vacío. Si hay más de `limite`, se detiene y
- * `truncado` es verdadero.
+ * `truncado` es verdadero. Por defecto no hay límite.
  */
 export function buscarSelecciones(
   instancia: Instancia,
   nivel: number,
-  limite: number = LIMITE_POR_DEFECTO,
+  limite: number = SIN_LIMITE,
 ): BusquedaNivel {
   if (!Number.isInteger(nivel) || nivel < 0 || nivel > NIVEL_MAXIMO) {
     throw new RangeError("El nivel debe ser un entero entre 0 y 8");
@@ -258,12 +262,43 @@ function nombreMateria(instancia: Instancia, materiaId: string): string {
   return materia ? `${materia.nombre} (${materiaId})` : materiaId;
 }
 
-function criteriosNoCumplidosDesde(nivel: number, activos: Criterio[]): string[] {
-  const faltantes: string[] = [];
-  for (let k = nivel + 1; k <= NIVEL_MAXIMO; k += 1) {
-    const criterio = NOMBRE_DE_NIVEL[k];
-    // Los niveles 0 a 2 siempre aplican; los 3 a 8 solo si el estudiante los declaró.
-    if (k <= 2 || activos.includes(criterio as Criterio)) faltantes.push(criterio);
+/**
+ * Diagnóstico de los criterios que impiden llegar al nivel 8.
+ *
+ * `nivelAlcanzado` es k: existen horarios que cumplen los niveles 0 a k y
+ * ninguno cumple 0 a k+1. Entonces:
+ *  - el nivel k+1 es el que bloquea (siempre se informa);
+ *  - de los niveles posteriores solo se informan los que NINGUNO de los horarios
+ *    del nivel k cumple por sí mismo (están comprobadamente incumplidos). Los que
+ *    algún horario sí cumple no se informan: no son la causa, solo no se pudieron
+ *    exigir junto con el que bloqueó.
+ *  - los criterios que el estudiante no declaró (niveles 3 a 8) no cuentan.
+ *
+ * Si ni el nivel 0 se alcanza (k = -1), solo se informa `restriccionesDuras`. Si la
+ * lista de horarios del nivel quedó incompleta por un límite pedido, tampoco se puede
+ * afirmar que "ninguno" cumple un criterio, así que solo se informa el que bloquea.
+ */
+function criteriosNoCumplidos(
+  nivelAlcanzado: number,
+  horariosDelNivel: Grupo[][],
+  listaCompleta: boolean,
+  activos: Criterio[],
+  instancia: Instancia,
+): string[] {
+  const aplica = (nivel: number) =>
+    nivel <= 2 || activos.includes(NOMBRE_DE_NIVEL[nivel] as Criterio);
+
+  const bloqueo = nivelAlcanzado + 1;
+  if (bloqueo > NIVEL_MAXIMO) return [];
+  const faltantes: string[] = [NOMBRE_DE_NIVEL[bloqueo]];
+  if (horariosDelNivel.length === 0 || !listaCompleta) return faltantes;
+
+  for (let nivel = bloqueo + 1; nivel <= NIVEL_MAXIMO; nivel += 1) {
+    if (!aplica(nivel)) continue;
+    const algunoLoCumple = horariosDelNivel.some((seleccion) =>
+      cumpleSoloNivel(nivel, seleccion, instancia),
+    );
+    if (!algunoLoCumple) faltantes.push(NOMBRE_DE_NIVEL[nivel]);
   }
   return faltantes;
 }
@@ -278,7 +313,7 @@ function criteriosNoCumplidosDesde(nivel: number, activos: Criterio[]): string[]
  */
 export function generarHorarios(
   instancia: Instancia,
-  limite: number = LIMITE_POR_DEFECTO,
+  limite: number = SIN_LIMITE,
 ): Resultado {
   const activos = criteriosActivos(instancia.estudiante);
   const base = {
@@ -286,21 +321,6 @@ export function generarHorarios(
     criteriosActivos: activos,
     errores: [],
   };
-
-  // Una materia alta sin grupos: se responde de inmediato, sin ejecutar la búsqueda.
-  const altaSinGrupos = instancia.sinGrupos.find((m) => m.prioridad === "alta");
-  if (altaSinGrupos) {
-    return {
-      ...base,
-      estado: "SIN_HORARIO",
-      motivo: `La materia alta ${nombreMateria(instancia, altaSinGrupos.materiaId)} no tiene grupos en el catálogo.`,
-      horarios: [],
-      nivelAlcanzado: -1,
-      criteriosNoCumplidos: criteriosNoCumplidosDesde(0, activos),
-      horariosNivelAlcanzado: [],
-      truncado: false,
-    };
-  }
 
   // Caso habitual: se intenta directamente la versión final (nivel 8).
   const completo = buscarSelecciones(instancia, NIVEL_MAXIMO, limite);
@@ -318,18 +338,30 @@ export function generarHorarios(
   }
 
   // Sin solución completa: se busca el nivel más alto que aún tiene horarios.
-  // Como los niveles son acumulativos, el conjunto solo se achica al subir de nivel.
+  // Los niveles son acumulativos (cada conjunto está dentro del anterior), así que
+  // "el nivel k tiene horarios" es verdadero hasta cierto punto y falso después:
+  // una búsqueda binaria encuentra ese punto con unas 3 búsquedas en vez de hasta 8.
   let nivelAlcanzado = -1;
   let mejor: BusquedaNivel = { selecciones: [], truncado: false };
-  for (let k = 0; k < NIVEL_MAXIMO; k += 1) {
-    const intento = buscarSelecciones(instancia, k, limite);
-    if (intento.selecciones.length === 0) break;
-    nivelAlcanzado = k;
-    mejor = intento;
+  let bajo = 0;
+  let alto = NIVEL_MAXIMO - 1; // el nivel 8 ya se probó
+  while (bajo <= alto) {
+    const medio = Math.floor((bajo + alto) / 2);
+    const intento = buscarSelecciones(instancia, medio, limite);
+    if (intento.selecciones.length > 0) {
+      nivelAlcanzado = medio;
+      mejor = intento;
+      bajo = medio + 1;
+    } else {
+      alto = medio - 1;
+    }
   }
 
   let motivo = "Ningún horario cumple todos los criterios.";
-  if (nivelAlcanzado < 1) {
+  const altaSinGrupos = instancia.sinGrupos.find((m) => m.prioridad === "alta");
+  if (altaSinGrupos) {
+    motivo = `La materia alta ${nombreMateria(instancia, altaSinGrupos.materiaId)} no tiene grupos en el catálogo.`;
+  } else if (nivelAlcanzado < 1) {
     const culpable = altaQueNoCabe(instancia);
     if (culpable) {
       motivo = `La materia alta ${nombreMateria(instancia, culpable)} no cabe en el horario: se cruza con otras materias altas, no tiene cupos o supera el máximo de créditos.`;
@@ -342,7 +374,13 @@ export function generarHorarios(
     motivo,
     horarios: [],
     nivelAlcanzado,
-    criteriosNoCumplidos: criteriosNoCumplidosDesde(nivelAlcanzado, activos),
+    criteriosNoCumplidos: criteriosNoCumplidos(
+      nivelAlcanzado,
+      mejor.selecciones,
+      !mejor.truncado,
+      activos,
+      instancia,
+    ),
     horariosNivelAlcanzado: construirHorarios(mejor.selecciones, instancia),
     truncado: mejor.truncado,
   };
@@ -373,7 +411,7 @@ export type Ejecucion = { resultado: Resultado; instancia: Instancia | null };
  */
 export function ejecutar(
   entrada: string | unknown,
-  limite: number = LIMITE_POR_DEFECTO,
+  limite: number = SIN_LIMITE,
 ): Ejecucion {
   let valor: unknown;
   try {

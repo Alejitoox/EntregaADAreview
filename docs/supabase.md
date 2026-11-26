@@ -39,4 +39,8 @@ DATABASE_URL=<cadena de conexión del proyecto, con tu contraseña>
 
 ## Despliegue en Vercel
 
-Define las tres variables en el proyecto de Vercel (Settings → Environment Variables) y despliega. No hace falta Docker.
+Define las tres variables en el proyecto de Vercel (Settings → Environment Variables) y despliega. No hace falta Docker. En Vercel conviene usar como `DATABASE_URL` la cadena del **Transaction pooler** (puerto 6543), pensada para funciones serverless. Después del primer despliegue, pon la URL de Vercel en Supabase → Authentication → URL Configuration → Site URL.
+
+## Cambio de usuario
+
+El menú del perfil recuerda en el navegador (localStorage) las cuentas con las que se entró, solo sus tokens de sesión y nunca la contraseña, y permite cambiar con un clic o agregar otra cuenta. "Cerrar sesión" cierra solo la cuenta actual.
