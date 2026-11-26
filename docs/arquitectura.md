@@ -3,43 +3,50 @@
 ## Límites de cada capa
 
 - **Presentación (`src/components`, `app/`)**: Next.js App Router muestra el
-  flujo y consume rutas HTTP. No implementa reglas de compatibilidad ni SQL.
+  flujo y consume rutas HTTP. No implementa reglas del algoritmo ni SQL.
 - **Aplicación (`src/application`)**: `ejecutar-archivo.ts` valida el JSON,
   ejecuta el algoritmo completo (niveles 0 a 8) y entrega una respuesta
-  serializable con horarios, errores y textos de exportación. El código del
-  nivel cero (`prepare-level-zero.ts`) se conserva.
+  serializable y compacta. `exportar-bajo-demanda.ts` arma en el navegador los
+  textos de descarga y la validez de cada horario (qué criterios no cumple).
+  `validar-horario-guardado.ts` verifica un horario antes de guardarlo.
 - **Dominio (`src/domain`)**: contiene los tipos y algoritmos puros
   (`scheduling/modelo`, `validacion`, `niveles`, `generador`, `exportar`). Ver
-  `docs/algorithms/algoritmo-completo.md`. No depende de React, Docker ni
-  PostgreSQL.
+  `docs/algorithms/algoritmo-completo.md`. No depende de React ni de la base de datos.
 - **Infraestructura (`src/infrastructure/postgres`, `src/infrastructure/supabase`,
-  `database`)**: encapsula el pool de PostgreSQL, el esquema, las migraciones, los
-  datos de desarrollo y la integración con Supabase Auth (verificación del token en
-  el servidor, cliente del navegador y cuentas recordadas).
+  `database/supabase`)**: el pool de PostgreSQL hacia Supabase, el esquema y la
+  integración con Supabase Auth (verificación del token en el servidor, cliente del
+  navegador y cuentas recordadas).
 
-La interfaz permite seleccionar un usuario propietario y varios participantes.
-El resultado (niveles 0 a 8) se calcula para el estudiante del JSON de entrada;
-los participantes se asocian al horario guardado y pueden consultarlo desde su
-selector local. Cada resultado conserva tanto el horario generado como el JSON
-de origen para que futuras etapas puedan volver a procesarlo.
+El alcance es **un solo estudiante**: el resultado (niveles 0 a 8) se calcula para el
+estudiante del JSON de entrada, y cada usuario ve solo los horarios que él guardó. Cada
+horario guardado conserva el horario y el JSON de origen.
+
+## Flujo de pantallas
+
+Inicio de sesión → **Mis horarios guardados** (es el inicio) → Subir JSON → Horarios
+generados → calendario semanal → guardar o descargar. La barra muestra Guardados y
+Subir JSON, y "Horarios generados" cuando ya hay un resultado.
 
 ## Relación entre usuarios y horarios
 
-`app_user` registra los usuarios (en modo Supabase, su `user_id` es el id de Supabase
-Auth; en modo local, usuarios de desarrollo). `user_schedule` registra
-el resultado JSON, el archivo JSON de origen, el nivel alcanzado y su creador.
-`schedule_participant` permite agregar varios usuarios al horario compartido.
-La API inserta el horario y sus participantes dentro de una sola transacción.
-`schedule_section_assignment` se conserva para escenarios normalizados de
-prueba y el trabajo futuro con selecciones independientes por participante.
+`app_user` registra los usuarios (su `user_id` es el id de Supabase Auth).
+`user_schedule` registra el horario guardado (`generated_schedule`), el JSON de origen
+(`source_json`), su creador y `algorithm_level`: **el nivel hasta el que cumple el
+horario**. 8 significa que es válido; un valor menor significa que se guardó un horario
+que NO cumple todos los criterios (la app pide confirmación antes de guardarlo y lo
+muestra como "No válido · cumple hasta nivel N").
 
-Las versiones de catálogo viven en `catalog_dataset`. Los casos con cantidad
-esperada de horarios viven aparte en `level_zero_test_case`, para que los datos
-de verificación no formen parte del modelo de horarios de la aplicación.
+`schedule_participant` se conserva sin cambios en el esquema: la API inserta en ella
+solo la fila del dueño (`role = 'owner'`) y la consulta de guardados se apoya en esa
+fila. La función de compartir horarios con otros usuarios se quitó porque no está en el
+alcance del informe. `schedule_section_assignment`, `catalog_dataset`, `course`,
+`course_section`, `section_meeting` y `level_zero_test_case` siguen en el esquema
+(no se cambian las tablas), pero la aplicación ya no las llena.
 
-La aplicación funciona en dos modos (ver `docs/supabase.md`). Con las variables de
-Supabase hay **login real** (Supabase Auth) y la base de datos vive en Supabase; sin
-ellas, un modo local usa PostgreSQL en Docker y usuarios de demostración. En ambos
-casos la interfaz usa la API de Next.js y las rutas de servidor son las únicas que
-abren conexiones PostgreSQL; en modo Supabase el servidor toma la identidad del token,
-no de lo que envíe el navegador.
+## Modo de ejecución
+
+Solo hay un modo: **Supabase + Vercel** (ver `docs/supabase.md`). Con las variables de
+Supabase hay login real (Supabase Auth) y la base de datos vive en Supabase. Sin ellas,
+la página muestra "Falta configurar Supabase" y las rutas de la API responden 503. Las
+rutas de servidor son las únicas que abren conexiones a PostgreSQL y siempre toman la
+identidad del token, nunca de lo que envíe el navegador.

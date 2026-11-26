@@ -42,19 +42,20 @@ src/domain/scheduling/        ← el algoritmo (TypeScript puro, sin web ni base
   preprocesamiento.ts         prepara índices (grupos por materia, etc.)
   niveles.ts                  una función por nivel: ¿este horario cumple el nivel k?
   generador.ts                la búsqueda, el orden y el resultado (OK / SIN_HORARIO)
-  exportar.ts                 arma el JSON y el TXT de salida
-  level-zero.ts               el nivel 0 original (se conserva)
+  exportar.ts                 arma el JSON y el TXT de salida (marca "NO VÁLIDO")
 
 src/application/scheduling/
   ejecutar-archivo.ts         pega todo y entrega la respuesta que usa la web
+  exportar-bajo-demanda.ts    descargas y "qué no cumple" de cada horario, en el navegador
+  validar-horario-guardado.ts verifica un horario antes de guardarlo
 
 app/api/generate/route.ts     la ruta HTTP: validar o generar
-app/api/me, users, schedules  usuario actual, lista de usuarios y horarios guardados
+app/api/me, schedules         usuario actual y sus horarios guardados
 src/infrastructure/supabase/  login real: configuración, cliente del navegador,
                               verificación del token en el servidor y cuentas recordadas
-src/infrastructure/postgres/  conexión a la base de datos (Supabase o Docker local)
+src/infrastructure/postgres/  conexión a la base de datos de Supabase
 src/components/schedule-workspace.tsx   la interfaz (pantallas)
-tests/algoritmo.test.mjs      58 pruebas, no necesitan Docker
+tests/algoritmo.test.mjs      71 pruebas, no necesitan base de datos
 scripts/ , datos/sinteticos/  generador de datos de prueba y los archivos generados
 ```
 
@@ -80,7 +81,8 @@ Capas (de arriba hacia abajo): **Interfaz** → **API** → **Aplicación**
 | **Nivel** | Un criterio de calidad. Hay 9 (0 a 8) y son **acumulativos**. |
 | **Cruce** | Dos sesiones del mismo día que se pisan en el tiempo. |
 | **Hueco** | Tiempo libre entre dos clases consecutivas del mismo día. |
-| **Maximal** | No se podía agregar nada más al horario sin romper una regla. |
+| **Maximal** | No se podía agregar nada más al horario sin romper una regla que esté en juego. |
+| **No válido** | Un horario que no cumple los 9 niveles. Se muestra (y se puede guardar), pero marcado así. |
 
 Detalle importante: los intervalos son **semiabiertos**. Una clase de 8:00 a 10:00
 y otra de 10:00 a 12:00 **no se cruzan** (la primera termina justo cuando empieza
@@ -97,7 +99,7 @@ cumplir el 0, el 1, el 2 y el 3. Nunca son puntajes: o se cumple o no.
 | Nivel | Nombre | En una frase | Ejemplo |
 | --- | --- | --- | --- |
 | **0** | Restricciones duras | Sin cruces y con cupos. | Un grupo con 0 cupos nunca aparece. |
-| **1** | Prioridad | Las materias **alta** van sí o sí; y no dejar fuera nada que cupiera. | Si cabe una media más, el horario sin ella no sirve. |
+| **1** | Prioridad | Las materias **alta** van sí o sí; y no dejar fuera nada que cupiera **cumpliendo lo demás**. | Si cabe una media más sin romper otro criterio, el horario sin ella no sirve. |
 | **2** | Créditos | Total entre `creditosMin` y `creditosMax`. | Máximo 9 y cada materia 3 → máximo 3 materias. |
 | **3** | Almuerzo | Ninguna clase entre 13:00 y 14:00. | Una clase 12:00–13:00 sí vale; 12:30–13:30 no. |
 | **4** | Huecos | `ninguno` o `cortos` (hasta `maxMinutos`). | El tiempo de almuerzo no cuenta como hueco. |
@@ -112,9 +114,24 @@ Tiene tres partes:
 
 1. **Toda materia alta está incluida.**
 2. **Maximalidad:** si una materia (media o baja) quedó fuera, es porque **no se
-   podía agregar** sin cruzarse, sin cupos o pasándose del máximo de créditos.
+   podía agregar** dejando un horario que cumpla los demás criterios en juego (sin
+   cruces, con cupos y los niveles 2 a k en la versión del nivel k; en la final, 2 a 8).
 3. **Medias antes que bajas:** si una media quedó fuera, no puede ser que se
-   pudiera poner **en lugar de una baja** que sí está.
+   pudiera poner **en lugar de una baja** que sí está, con esa misma condición.
+
+**Por qué "cumpliendo lo demás":** A (alta) tiene clase el lunes; B (baja) solo tiene
+grupo el viernes y el estudiante pidió el viernes libre. Si la maximalidad solo mirara
+cruces y créditos, A sola "no sería maximal" (B cabía) y A + B rompe el día libre: no
+habría horario. Con la regla corregida, B no obliga a entrar porque meterla rompe un
+criterio, y **A sola es válida**.
+
+**Consecuencia que hay que saber explicar:** los conjuntos de cada nivel ya no están
+uno dentro del otro. En ese ejemplo, en el nivel 5 (los días libres todavía no cuentan)
+el único horario es A + B, y en el nivel 6 es A sola. Pero sigue siendo cierto que **si
+el nivel k tiene horarios, el k − 1 también**: partiendo de un horario del nivel k, se
+pueden ir agregando materias (o cambiando bajas por medias) mientras cumplan hasta
+k − 1. Cada paso aumenta (medias, materias), así que termina, y termina en un horario
+del nivel k − 1. Por eso la búsqueda binaria del nivel alcanzado sigue siendo válida.
 
 **Ejemplo del informe:** 1 alta, 2 medias y 1 baja, 3 créditos cada una, máximo
 9 créditos. Entran 3 materias. Las opciones serían alta + media + media, o alta +
@@ -204,20 +221,40 @@ lista de preferidos vale 0, el segundo 1, etc. (menor suma = mejor). Si hay empa
 se desempata con una llave estable (así el orden es siempre el mismo). Luego se
 numeran `Horario 1, 2, 3…`.
 
+> **Nota sobre el desempate.** El informe dice que los empates se resuelven "por id del
+> horario", pero ese id (1, 2, 3…) se asigna **después** de ordenar: no puede usarse
+> para ordenar. Por eso usamos una **llave estable por grupos** (los grupos del horario
+> ordenados por materia, por ejemplo `A:A-1|B:B-2`), que siempre da el mismo orden.
+
 ### 5.5 Paso 5 — Resultado
 
 - **`OK`**: hay al menos un horario que cumple los 9 niveles.
 - **`SIN_HORARIO`**: ninguno cumple todo. Se calcula el **nivel alcanzado** (el
   mayor nivel con al menos un horario) y los **criterios no cumplidos**. Primero se
   intenta directo el nivel 8; si no hay nada, se busca el nivel más alto con
-  horarios por **búsqueda binaria** (como cada nivel incluye al anterior, basta con
-  unas 3 búsquedas en vez de probar los 8 niveles).
+  horarios por **búsqueda binaria** (como "el nivel tiene horarios" es monótono,
+  basta con unas 3 búsquedas en vez de probar los 8 niveles).
 - **`ARCHIVO_INVALIDO`**: había errores de validación; no se ejecutó nada.
 
-Casos especiales: si una materia **alta** no tiene grupos, se responde
-`SIN_HORARIO`, pero igual se informa el nivel que sí se alcanza (el 0: se puede armar
-un horario sin esa materia) y la prioridad como criterio que falla. Las materias omitidas traen razones **comprobadas**:
-`supera creditosMax`, `sin cupos`, `se cruza con X, Y`, `sin grupos en el catálogo`.
+**Los horarios del nivel alcanzado NO son válidos.** Se muestran para que el estudiante
+vea lo más cercano, pero bajo el título "Horarios que NO cumplen todos tus criterios",
+con la etiqueta **NO VÁLIDO** y una línea por criterio incumplido que dice qué materia,
+grupo o sesión lo rompe (por ejemplo "No cumple: Días libres (Inglés, grupo ING-02, el
+viernes 08:00 a 10:00)"). Lo calcula `criteriosIncumplidosDe` en `niveles.ts`. En el
+calendario sale un aviso y se resalta el bloque culpable. Guardarlos pide confirmación,
+y en "Mis horarios guardados" quedan como "No válido · cumple hasta nivel N" (los
+válidos, con nivel 8, como "Válido").
+
+**Materia alta sin grupos:** no se puede inscribir, así que ningún horario es válido
+(`SIN_HORARIO`, con el motivo "La materia alta X no se pudo inscribir porque no tiene
+grupos en el catálogo"). Aun así se busca con las demás materias y se muestran esos
+horarios como NO VÁLIDOS, con la alta omitida por "sin grupos en el catálogo". Si no
+queda ninguna otra materia, solo se muestra el aviso.
+
+Las materias omitidas traen razones **comprobadas**: `supera creditosMax`, `sin cupos`,
+`se cruza con X, Y`, `sin grupos en el catálogo` y, si el estudiante declaró el
+criterio, `choca con el almuerzo`, `deja huecos…`, `fuera de la franja…`,
+`tiene clase en día libre (…)` y `profesor no preferido`.
 
 Se devuelven **todos** los horarios (el enunciado lo pide): no hay tope oculto. Si
 quien llama pide un límite, se marca `truncado`. Para que miles de horarios no
@@ -247,14 +284,15 @@ muestra (50 a la vez, con "Mostrar más") usando el catálogo del archivo.
 
 ## 7. La aplicación web
 
-Flujo: **registro / inicio de sesión → mis horarios guardados → subir JSON → lista de
-horarios generados → calendario semanal → guardar o descargar.**
+Flujo: **registro / inicio de sesión → mis horarios guardados (es el inicio) → subir
+JSON → lista de horarios generados → calendario semanal → guardar o descargar.** La
+barra tiene Guardados y Subir JSON, y "Horarios generados" cuando ya hay un resultado.
 
 **Login real con Supabase.** La persona se registra o entra con correo y contraseña
 (Supabase Auth). El navegador recibe un *token* y lo manda en cada llamada a la API;
 el servidor le pregunta a Supabase quién es y **nunca confía en un id que mande el
 navegador**: el dueño de un horario y la lista de guardados salen siempre del token.
-Los datos (usuarios, horarios guardados, participantes) están en la base PostgreSQL de
+Los datos (usuarios y horarios guardados) están en la base PostgreSQL de
 Supabase, con RLS activado y sin políticas, de modo que la clave pública no puede leer
 las tablas directamente. Las contraseñas las guarda Supabase como *hash*; la aplicación
 nunca las ve ni las almacena.
@@ -268,15 +306,19 @@ cierra solo la cuenta actual. Se guardan solo los tokens de sesión, nunca contr
    se muestra el número de errores y la lista completa **agrupada por bloque**
    (`catalogo` / `estudiante` / archivo), cada uno con código, ruta, esperado y
    encontrado. Si es válido, se habilita "Ejecutar algoritmo".
-2. **Horarios generados:** muestra estado, nivel alcanzado, criterios activos,
-   cuántos horarios hay, y cada horario con sus créditos totales y materias
-   omitidas (con la razón). Si no hay solución, muestra el motivo, los criterios no
-   cumplidos y los mejores horarios del nivel alcanzado.
+2. **Horarios generados:** muestra estado, criterios activos, cuántos horarios
+   válidos hay, y cada horario con sus créditos totales y materias omitidas (con la
+   razón). Si no hay solución: "Horarios válidos: 0", "Horarios que no cumplen todo: N",
+   "Cumple hasta el nivel k de 8", el motivo, los criterios no cumplidos y los horarios
+   NO VÁLIDOS con lo que incumple cada uno.
 3. **Calendario semanal:** lunes a sábado, un bloque por sesión con materia, grupo
-   y profesor.
+   y profesor. Si el horario no es válido, aviso "Horario NO válido: no cumple …" y el
+   bloque que incumple resaltado.
 4. **Guardar / descargar:** cada horario se puede guardar y descargar en JSON o TXT;
    también se puede descargar **todo el resultado**. Los textos se arman al pulsar el
-   botón (no viajan con el resultado). Al guardar, el servidor **vuelve a verificar**
+   botón (no viajan con el resultado). Un horario no válido se descarga marcado
+   "NO VÁLIDO" con los criterios que no cumple. Guardar uno no válido pide
+   confirmación. Al guardar, el servidor **vuelve a verificar**
    el horario: el grupo existe y es de esa materia, no hay cruces, y cumple el nivel
    declarado; lo que se guarda se reconstruye desde el catálogo, no se confía en lo que
    mande el navegador.
@@ -284,7 +326,9 @@ cierra solo la cuenta actual. Se guardan solo los tokens de sesión, nunca contr
 **Formatos de salida** (sección 2.3 del informe): el JSON trae `estudianteId`,
 `estado`, `criteriosActivos`, `motivo` y la lista de `horarios` (con `materias`,
 `omitidas` y `creditosTotales`). El TXT empieza con `HORARIOS PARA <id>`,
-`Estado`, `Criterios activos`, `Total de horarios` y luego cada horario.
+`Estado`, `Criterios activos`, `Total de horarios` y luego cada horario. Un horario
+no válido agrega "NO VÁLIDO: cumple hasta el nivel k de 8" y una línea "No cumple: …"
+por criterio (en el JSON: `validez`, `cumpleHastaNivel` y `criteriosNoCumplidos`).
 
 ---
 
@@ -294,14 +338,16 @@ Estas son interpretaciones donde el enunciado dejaba espacio. Hay que conocerlas
 para no caer si preguntan "¿y por qué así?".
 
 1. **El horario vacío no cuenta.** Sin materias no hay horario; nunca se devuelve.
-2. **Maximalidad y "medias antes que bajas"** (nivel 1): las implementamos como en
-   el ejemplo del informe. Es nuestra lectura de esa sección.
+2. **Maximalidad y "medias antes que bajas"** (nivel 1): una materia omitida solo
+   obliga si el horario resultante cumple los demás criterios en juego. Es un ajuste
+   sobre el texto del informe (que solo mencionaba el nivel 0 y el máximo de créditos);
+   el ejemplo del informe sigue dando lo mismo. Ver `docs/cambios-vs-entrega1.md`.
 3. **Los niveles son filtros, no puntajes.** El único "puntaje" es el orden por
    profesor, que solo ordena, no filtra.
 4. **Dos formas de reportar "sin horario".** El informe dice "o cumple los 9 niveles
    o `SIN_HORARIO`", y las pantallas hablan de "nivel alcanzado" y "criterios no
    cumplidos". Hicimos **ambas cosas**: el estado es `SIN_HORARIO` y además se informa
-   hasta qué nivel se llegó.
+   hasta qué nivel se llegó, con esos horarios marcados claramente como **NO VÁLIDOS**.
 5. **`criteriosNoCumplidos`**: el primero es el nivel siguiente al alcanzado (el que
    bloquea); de los demás solo se listan los que **ningún** horario del nivel alcanzado
    cumple por sí solo. Un criterio que sí se cumple no se reporta como fallido, y los
@@ -312,16 +358,18 @@ para no caer si preguntan "¿y por qué así?".
    inválido (`RANGO_INVALIDO`), no se "arregla" en silencio.
 8. **Sin tope de horarios:** el informe pide todos. La respuesta es compacta y la
    pantalla pagina de 50 en 50; un límite es opcional (`limite`) y, si se usa, se avisa.
+9. **Desempate del orden por una llave estable de grupos**, no por el id del horario
+   (el id se asigna después de ordenar).
+10. **Un solo estudiante:** se quitó la opción de compartir horarios con otros usuarios
+    y la lista de usuarios; cada quien ve solo lo que guardó.
 
 **Límites actuales (decirlos con honestidad):**
 
 - El login es **real** (Supabase Auth, correo y contraseña) y la base de datos está en
-  **Supabase**, como decía el diseño de la Entrega 1. Para el proyecto de curso:
-  la confirmación de correo está desactivada (se entra directo al registrarse) y todos
-  los usuarios registrados ven el nombre y el correo de los demás al elegir
-  participantes. En producción se limitaría.
-- Si no hay variables de Supabase, la app cae a un **modo local** con usuarios de
-  demostración y PostgreSQL en Docker; sirve para trabajar sin internet.
+  **Supabase**, como decía el diseño de la Entrega 1. Para el proyecto de curso la
+  confirmación de correo está desactivada (se entra directo al registrarse).
+- Solo hay un modo: Supabase + Vercel. Sin las variables de Supabase la página muestra
+  "Falta configurar Supabase" (no hay modo local con Docker).
 - Las cuentas recordadas para cambiar de usuario viven en el navegador (localStorage);
   en un computador compartido conviene usar "Cerrar sesión".
 - El algoritmo y la API están probados automáticamente; la interfaz se compiló
@@ -352,8 +400,19 @@ uno con código, ruta, qué se esperaba y qué se encontró.
 
 **¿Qué pasa si no existe ningún horario?**
 Estado `SIN_HORARIO` con el motivo, el nivel alcanzado, los criterios no cumplidos
-y los mejores horarios hasta ese nivel. El criterio que bloquea es el siguiente al
-nivel alcanzado; los demás que se listan son los que ningún horario de ese nivel cumple.
+y los horarios de ese nivel, marcados **NO VÁLIDO** con lo que incumple cada uno. El
+criterio que bloquea es el siguiente al nivel alcanzado; los demás que se listan son los
+que ningún horario de ese nivel cumple.
+
+**¿Por qué los niveles ya no están uno dentro del otro, y la búsqueda binaria sigue sirviendo?**
+Porque la maximalidad del nivel k mira los criterios hasta k: una materia que en el
+nivel 5 debía entrar, en el 6 puede romper los días libres y ya no obliga. Pero si el
+nivel k tiene horarios, el k − 1 también (se agregan materias mientras cumplan hasta
+k − 1, y eso termina). La búsqueda binaria solo necesita eso.
+
+**¿Por qué desempatan con una llave de grupos y no con el id?**
+Porque el id del horario se pone después de ordenar; la llave estable por grupos da
+siempre el mismo orden.
 
 **¿Validar el archivo ejecuta el algoritmo?**
 No. La pantalla "Subir JSON" solo valida (parsea y revisa los 9 códigos de error);
@@ -398,8 +457,7 @@ login.
 
 **¿Qué mejorarían?**
 Paginación de resultados enormes, una heurística para ordenar por más criterios
-(huecos, amigos) además del profesor, limitar qué usuarios se ven entre sí y activar
-la confirmación de correo en producción.
+(huecos, amigos) además del profesor y activar la confirmación de correo en producción.
 
 ---
 
@@ -420,25 +478,26 @@ Los archivos de ejemplo están en `datos/sinteticos/` (los genera
 5. **Calendario:** abrir un horario, ver lunes a sábado con materia, grupo y profesor.
 6. **Descarga:** bajar el JSON y el TXT de un horario y el resultado completo.
 7. **Sin solución:** (opcional) editar `valido-pequeno.json` poniendo los seis días en
-   `diasLibres` y subirlo, para mostrar `SIN_HORARIO`, el motivo y el nivel alcanzado.
+   `diasLibres` y subirlo, para mostrar `SIN_HORARIO`, el motivo, "Cumple hasta el nivel
+   k de 8" y los horarios NO VÁLIDOS con su "No cumple: …". Abrir uno en el calendario
+   (bloque resaltado) e intentar guardarlo (pide confirmación).
 8. **Login y cambio de usuario:** registrarse (o entrar), abrir el menú del perfil,
    "Agregar otra cuenta" y cambiar entre las dos; mostrar que cada una ve sus propios
    horarios guardados.
-9. **Pruebas:** en la terminal, `pnpm test` → 58 pruebas en verde.
+9. **Pruebas:** en la terminal, `pnpm test` → 71 pruebas en verde.
 
 **Cómo correr todo en la máquina:**
 
 ```bash
 pnpm install
-pnpm test            # pruebas del algoritmo (sin Docker ni internet)
+pnpm test            # pruebas del algoritmo (sin base de datos ni internet)
 pnpm datos:generar   # regenera datos/sinteticos
 pnpm dev             # la aplicación en http://localhost:3000
 ```
 
 Con Supabase hace falta un `.env.local` con `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` y `DATABASE_URL` (ver `docs/supabase.md`; ese
-archivo no se sube a Git). **Sin ese archivo** la app arranca en modo local: levantar
-antes `docker compose up -d --wait db` para tener PostgreSQL con usuarios de demostración.
+archivo no se sube a Git). Sin ese archivo la página muestra "Falta configurar Supabase".
 
 ---
 
