@@ -1196,3 +1196,55 @@ test("guardar: un horario NO válido se acepta con el nivel que de verdad cumple
     /no cumple el nivel 8/,
   );
 });
+
+/* ------------------------------------------------------------------ */
+/* Archivos de demostración (datos/demostracion, ver su README)       */
+/* ------------------------------------------------------------------ */
+
+test("los archivos de demostración dan el resultado que dice su README", async () => {
+  const { readFileSync } = await import("node:fs");
+  const leer = (nombre) => readFileSync(new URL(`../datos/demostracion/${nombre}.json`, import.meta.url), "utf8");
+  // [archivo, estado, nivel alcanzado, horarios válidos, horarios NO válidos, criterios no cumplidos]
+  const esperados = [
+    ["01-valido-un-solo-horario", "OK", 8, 1, 0, []],
+    ["02-valido-varios-horarios-ordenados-por-profesor", "OK", 8, 8, 0, []],
+    ["03-nivel-0-materia-alta-sin-grupos", "SIN_HORARIO", 0, 0, 1, ["prioridad"]],
+    ["04-nivel-0-dos-materias-altas-se-cruzan", "SIN_HORARIO", 0, 0, 5, ["prioridad"]],
+    ["05-nivel-1-no-alcanza-creditos-minimos", "SIN_HORARIO", 1, 0, 1, ["creditos"]],
+    ["06-nivel-2-clase-en-hora-de-almuerzo", "SIN_HORARIO", 2, 0, 1, ["almuerzo"]],
+    ["07-nivel-3-huecos-largos-entre-clases", "SIN_HORARIO", 3, 0, 1, ["huecos"]],
+    ["08-nivel-4-clase-fuera-de-la-franja", "SIN_HORARIO", 4, 0, 1, ["franja"]],
+    ["09-nivel-5-clase-en-dia-libre", "SIN_HORARIO", 5, 0, 1, ["diasLibres"]],
+    ["10-nivel-6-profesor-preferido-no-disponible", "SIN_HORARIO", 6, 0, 1, ["profesor"]],
+    ["11-nivel-7-pocas-coincidencias-con-amigos", "SIN_HORARIO", 7, 0, 1, ["amigos"]],
+    ["12-materia-baja-en-dia-libre-se-omite", "OK", 8, 1, 0, []],
+    ["13-media-tiene-preferencia-sobre-baja", "OK", 8, 1, 0, []],
+    ["14-grupo-sin-cupos-se-usa-el-otro", "OK", 8, 1, 0, []],
+    ["15-ningun-horario-posible-sin-cupos", "SIN_HORARIO", -1, 0, 0, ["restriccionesDuras"]],
+    ["16-invalido-varios-errores", "ARCHIVO_INVALIDO", null, 0, 0, []],
+  ];
+  for (const [nombre, estado, nivel, validos, noValidos, criterios] of esperados) {
+    const { resultado: r } = ejecutar(leer(nombre));
+    assert.deepEqual(
+      [r.estado, r.nivelAlcanzado, r.horarios.length, r.horariosNivelAlcanzado.length, r.criteriosNoCumplidos],
+      [estado, nivel, validos, noValidos, criterios],
+      nombre,
+    );
+  }
+  // Casos puntuales del README.
+  const sinMovil = ejecutar(leer("12-materia-baja-en-dia-libre-se-omite")).resultado.horarios[0];
+  assert.deepEqual(sinMovil.omitidas, [{ materiaId: "MOV303", razones: ["tiene clase en día libre (sábado)"] }]);
+  const media = ejecutar(leer("13-media-tiene-preferencia-sobre-baja")).resultado.horarios[0];
+  assert.deepEqual(media.omitidas.map((o) => o.materiaId), ["MOV303"]);
+  const sinCupos = ejecutar(leer("14-grupo-sin-cupos-se-usa-el-otro")).resultado.horarios[0];
+  assert.ok(sinCupos.asignaciones.some((a) => a.grupoId === "ED201-02"));
+  assert.equal(ejecutar(leer("16-invalido-varios-errores")).resultado.errores.length, 6);
+  // El JSON de ejemplo de la app es el archivo 02.
+  const ejemplo = readFileSync(new URL("../public/horario-ejemplo.json", import.meta.url), "utf8");
+  assert.equal(ejemplo, leer("02-valido-varios-horarios-ordenados-por-profesor"));
+  const primero = ejecutar(ejemplo).resultado.horarios[0];
+  assert.deepEqual(
+    primero.asignaciones.map((a) => a.grupoId).sort(),
+    ["ADA304-01", "ED201-01", "IA305-01", "MOV303-01", "OPT301-01", "WEB302-01"],
+  );
+});
