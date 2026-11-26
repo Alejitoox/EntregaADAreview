@@ -36,8 +36,9 @@ export type MateriaVista = {
 };
 
 /**
- * Horario para la interfaz. `courses` conserva el nombre y la forma del módulo del
- * nivel 0 para que el calendario y los horarios ya guardados sigan funcionando.
+ * Horario para la interfaz. `courses` conserva el nombre y la forma con la que se
+ * guardaron los primeros horarios, para que el calendario y los horarios ya
+ * guardados sigan funcionando.
  */
 export type HorarioVista = {
   id: number;

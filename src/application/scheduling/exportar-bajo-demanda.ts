@@ -17,6 +17,7 @@ import {
   exportarTXT,
   indexarCatalogo,
   type IndiceCatalogo,
+  type Validez,
 } from "../../domain/scheduling/exportar.ts";
 import {
   criteriosActivos,
@@ -25,6 +26,11 @@ import {
   type Horario,
   type Resultado,
 } from "../../domain/scheduling/modelo.ts";
+import {
+  criteriosIncumplidosDe,
+  NIVEL_MAXIMO,
+} from "../../domain/scheduling/niveles.ts";
+import { preprocesar, type Instancia } from "../../domain/scheduling/preprocesamiento.ts";
 import { validarEntrada } from "../../domain/scheduling/validacion.ts";
 import type { RespuestaGeneracion } from "./ejecutar-archivo.ts";
 
@@ -43,7 +49,7 @@ export type HorarioExportable = {
   omitidas?: Horario["omitidas"];
 };
 
-type DatosDeFuente = { indice: IndiceCatalogo; estudiante: Estudiante };
+type DatosDeFuente = { indice: IndiceCatalogo; estudiante: Estudiante; instancia: Instancia };
 
 const cache = new WeakMap<object, DatosDeFuente | null>();
 
@@ -52,7 +58,13 @@ export function datosDeFuente(fuente: unknown): DatosDeFuente | null {
   if (typeof fuente !== "object" || fuente === null) return null;
   if (cache.has(fuente)) return cache.get(fuente) ?? null;
   const { datos } = validarEntrada(fuente);
-  const resultado = datos ? { indice: indexarCatalogo(datos.catalogo), estudiante: datos.estudiante } : null;
+  const resultado = datos
+    ? {
+        indice: indexarCatalogo(datos.catalogo),
+        estudiante: datos.estudiante,
+        instancia: preprocesar(datos.catalogo, datos.estudiante),
+      }
+    : null;
   cache.set(fuente, resultado);
   return resultado;
 }
@@ -94,6 +106,30 @@ export function resultadoDesdeRespuesta(r: RespuestaGeneracion, datos: DatosDeFu
   };
 }
 
+/** Validez de un horario ya convertido, sabiendo hasta qué nivel cumple. */
+function validezDe(horario: Horario, nivel: number, datos: DatosDeFuente): Validez {
+  const seleccion = horario.asignaciones
+    .map((a) => datos.instancia.grupos.get(a.grupoId))
+    .filter((g) => g !== undefined);
+  return { cumpleHastaNivel: nivel, incumplimientos: criteriosIncumplidosDe(seleccion, datos.instancia) };
+}
+
+/**
+ * Por qué un horario NO es válido: nivel hasta el que cumple y criterios que no
+ * cumple, con sus materias y sesiones. Devuelve null si el horario es válido (nivel 8)
+ * o si el archivo de origen no se puede leer.
+ */
+export function validezDeHorario(
+  vista: HorarioExportable,
+  fuente: unknown,
+  nivel: number,
+): Validez | null {
+  if (nivel >= NIVEL_MAXIMO) return null;
+  const datos = datosDeFuente(fuente);
+  if (!datos) return null;
+  return validezDe(horarioDesdeVista(vista, datos), nivel, datos);
+}
+
 /**
  * Texto de UN horario. Devuelve null si el archivo de origen no se puede leer (el
  * llamador usa entonces su plan B).
@@ -102,6 +138,7 @@ export function textoDeHorario(
   extension: ExtensionDescarga,
   vista: HorarioExportable,
   fuente: unknown,
+  nivel: number = NIVEL_MAXIMO,
 ): string | null {
   const datos = datosDeFuente(fuente);
   if (!datos) return null;
@@ -110,9 +147,10 @@ export function textoDeHorario(
     criteriosActivos: criteriosActivos(datos.estudiante),
   };
   const horario = horarioDesdeVista(vista, datos);
+  const validez = nivel >= NIVEL_MAXIMO ? null : validezDe(horario, nivel, datos);
   return extension === "json"
-    ? exportarHorarioJSON(resultado as Resultado, horario)
-    : exportarHorarioTXT(resultado as Resultado, horario, datos.indice);
+    ? exportarHorarioJSON(resultado as Resultado, horario, validez)
+    : exportarHorarioTXT(resultado as Resultado, horario, datos.indice, validez);
 }
 
 /** Texto de TODO el resultado (lista completa). */
@@ -123,5 +161,11 @@ export function textoDeResultado(
 ): string {
   const datos = datosDeFuente(fuente);
   const resultado = resultadoDesdeRespuesta(respuesta, datos);
-  return extension === "json" ? exportarJSON(resultado) : exportarTXT(resultado, datos?.indice ?? null);
+  // Los horarios de `horariosNivelAlcanzado` no son válidos: cada uno lleva su marca.
+  const calculo = datos
+    ? (horario: Horario) => validezDe(horario, respuesta.nivelAlcanzado ?? 0, datos)
+    : undefined;
+  return extension === "json"
+    ? exportarJSON(resultado, calculo)
+    : exportarTXT(resultado, datos?.indice ?? null, calculo);
 }

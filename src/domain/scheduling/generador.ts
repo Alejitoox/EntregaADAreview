@@ -304,12 +304,78 @@ function criteriosNoCumplidos(
 }
 
 /**
+ * La misma instancia sin las materias altas que no tienen grupos: como no se pueden
+ * inscribir, se busca con las demás para mostrar lo que sí se puede armar.
+ */
+function sinAltasFaltantes(instancia: Instancia, faltantes: Set<string>): Instancia {
+  const materias = instancia.estudiante.materias.filter((m) => !faltantes.has(m.materiaId));
+  return {
+    ...instancia,
+    estudiante: { ...instancia.estudiante, materias },
+    sinGrupos: instancia.sinGrupos.filter((m) => !faltantes.has(m.materiaId)),
+    solicitadasPorId: new Map(materias.map((m) => [m.materiaId, m])),
+  };
+}
+
+/** "La materia alta X (ID) no se pudo…" o "Las materias altas X (ID) y Y (ID) no se pudieron…". */
+function motivoAltasSinGrupos(instancia: Instancia, ids: string[]): string {
+  const nombres = ids.map((id) => nombreMateria(instancia, id));
+  if (nombres.length === 1) {
+    return `La materia alta ${nombres[0]} no se pudo inscribir porque no tiene grupos en el catálogo.`;
+  }
+  const lista = `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+  return `Las materias altas ${lista} no se pudieron inscribir porque no tienen grupos en el catálogo.`;
+}
+
+/**
+ * Nivel más alto k (0 a 8) para el que existe algún horario, con esos horarios.
+ * -1 si ni el nivel 0 tiene horarios.
+ *
+ * Desde el ajuste a la maximalidad del nivel 1, los conjuntos V_k NO están anidados
+ * (V_6 puede tener horarios que no están en V_5). Pero la búsqueda binaria solo
+ * necesita que "V_k no está vacío" sea monótono, y eso sí se cumple: si S está en
+ * V_{k+1} y no en V_k, es porque alguna materia omitida se podía agregar (o cambiar
+ * por una baja) cumpliendo los niveles 0 y 2 a k. Haciendo ese cambio, y repitiendo,
+ * el par (medias incluidas, materias incluidas) crece en cada paso, así que la cadena
+ * termina en un horario de V_k. Por eso V_{k+1} con horarios implica V_k con horarios.
+ * Las pruebas lo comparan contra fuerza bruta.
+ */
+function nivelMasAlto(
+  instancia: Instancia,
+  limite: number,
+  completo: BusquedaNivel,
+): { nivel: number; mejor: BusquedaNivel } {
+  if (completo.selecciones.length > 0) return { nivel: NIVEL_MAXIMO, mejor: completo };
+  let nivel = -1;
+  let mejor: BusquedaNivel = { selecciones: [], truncado: false };
+  let bajo = 0;
+  let alto = NIVEL_MAXIMO - 1; // el nivel 8 ya se probó
+  while (bajo <= alto) {
+    const medio = Math.floor((bajo + alto) / 2);
+    const intento = buscarSelecciones(instancia, medio, limite);
+    if (intento.selecciones.length > 0) {
+      nivel = medio;
+      mejor = intento;
+      bajo = medio + 1;
+    } else {
+      alto = medio - 1;
+    }
+  }
+  return { nivel, mejor };
+}
+
+/**
  * Corre el algoritmo sobre una instancia ya validada y preprocesada.
  *
  *  - OK: existe al menos un horario que cumple los niveles 0 a 8.
  *  - SIN_HORARIO: la instancia es válida pero ningún horario cumple todos los
  *    criterios. Además se informa el nivel más alto alcanzado y los criterios
- *    que faltan; los horarios de ese nivel van en `horariosNivelAlcanzado`.
+ *    que faltan; los horarios de ese nivel (que NO son válidos) van en
+ *    `horariosNivelAlcanzado`.
+ *  - Si una materia alta no tiene grupos, ningún horario puede ser válido: se busca
+ *    con las demás materias, el motivo dice que esa materia no se pudo inscribir y
+ *    los horarios encontrados van en `horariosNivelAlcanzado` (sin ella, con la
+ *    razón "sin grupos en el catálogo"). Estrictamente cumplen solo el nivel 0.
  */
 export function generarHorarios(
   instancia: Instancia,
@@ -322,9 +388,16 @@ export function generarHorarios(
     errores: [],
   };
 
+  const altasSinGrupos = instancia.sinGrupos
+    .filter((m) => m.prioridad === "alta")
+    .map((m) => m.materiaId);
+  const busqueda = altasSinGrupos.length
+    ? sinAltasFaltantes(instancia, new Set(altasSinGrupos))
+    : instancia;
+
   // Caso habitual: se intenta directamente la versión final (nivel 8).
-  const completo = buscarSelecciones(instancia, NIVEL_MAXIMO, limite);
-  if (completo.selecciones.length > 0) {
+  const completo = buscarSelecciones(busqueda, NIVEL_MAXIMO, limite);
+  if (completo.selecciones.length > 0 && altasSinGrupos.length === 0) {
     return {
       ...base,
       estado: "OK",
@@ -337,34 +410,26 @@ export function generarHorarios(
     };
   }
 
-  // Sin solución completa: se busca el nivel más alto que aún tiene horarios.
-  // Los niveles son acumulativos (cada conjunto está dentro del anterior), así que
-  // "el nivel k tiene horarios" es verdadero hasta cierto punto y falso después:
-  // una búsqueda binaria encuentra ese punto con unas 3 búsquedas en vez de hasta 8.
-  let nivelAlcanzado = -1;
-  let mejor: BusquedaNivel = { selecciones: [], truncado: false };
-  let bajo = 0;
-  let alto = NIVEL_MAXIMO - 1; // el nivel 8 ya se probó
-  while (bajo <= alto) {
-    const medio = Math.floor((bajo + alto) / 2);
-    const intento = buscarSelecciones(instancia, medio, limite);
-    if (intento.selecciones.length > 0) {
-      nivelAlcanzado = medio;
-      mejor = intento;
-      bajo = medio + 1;
-    } else {
-      alto = medio - 1;
-    }
-  }
+  // Sin solución completa: el nivel más alto que aún tiene horarios.
+  const { nivel, mejor } = nivelMasAlto(busqueda, limite, completo);
+  const diagnostico = criteriosNoCumplidos(nivel, mejor.selecciones, !mejor.truncado, activos, busqueda);
 
   let motivo = "Ningún horario cumple todos los criterios.";
-  const altaSinGrupos = instancia.sinGrupos.find((m) => m.prioridad === "alta");
-  if (altaSinGrupos) {
-    motivo = `La materia alta ${nombreMateria(instancia, altaSinGrupos.materiaId)} no tiene grupos en el catálogo.`;
-  } else if (nivelAlcanzado < 1) {
-    const culpable = altaQueNoCabe(instancia);
+  let nivelAlcanzado = nivel;
+  let noCumplidos = diagnostico;
+  if (altasSinGrupos.length) {
+    // Sin una materia alta no se pasa el nivel 1: estrictamente, lo más que se cumple es el 0.
+    motivo = motivoAltasSinGrupos(instancia, altasSinGrupos);
+    nivelAlcanzado = Math.min(nivel, 0);
+    if (nivel >= 0) noCumplidos = ["prioridad", ...diagnostico.filter((c) => c !== "prioridad")];
+    else if (busqueda.solicitadas.length > 0) noCumplidos = ["restriccionesDuras", "prioridad"];
+    else noCumplidos = ["prioridad"]; // no queda ninguna otra materia con grupos
+  }
+  if (nivel < 1) {
+    const culpable = altaQueNoCabe(busqueda);
     if (culpable) {
-      motivo = `La materia alta ${nombreMateria(instancia, culpable)} no cabe en el horario: se cruza con otras materias altas, no tiene cupos o supera el máximo de créditos.`;
+      const noCabe = `La materia alta ${nombreMateria(instancia, culpable)} no cabe en el horario: se cruza con otras materias altas, no tiene cupos o supera el máximo de créditos.`;
+      motivo = altasSinGrupos.length ? `${motivo} ${noCabe}` : noCabe;
     }
   }
 
@@ -374,13 +439,7 @@ export function generarHorarios(
     motivo,
     horarios: [],
     nivelAlcanzado,
-    criteriosNoCumplidos: criteriosNoCumplidos(
-      nivelAlcanzado,
-      mejor.selecciones,
-      !mejor.truncado,
-      activos,
-      instancia,
-    ),
+    criteriosNoCumplidos: noCumplidos,
     horariosNivelAlcanzado: construirHorarios(mejor.selecciones, instancia),
     truncado: mejor.truncado,
   };

@@ -130,11 +130,17 @@ export type Resultado = {
   motivo: string | null;
   horarios: Horario[];
   errores: ErrorValidacion[];
-  /** Nivel más alto (0 a 8) para el que existe al menos un horario; -1 si ninguno; null si el archivo es inválido. */
+  /**
+   * Nivel más alto (0 a 8) para el que existe al menos un horario; -1 si ninguno; null
+   * si el archivo es inválido. Si falta una materia alta sin grupos, es como mucho 0.
+   */
   nivelAlcanzado: number | null;
   /** Criterios que impiden llegar al nivel 8 (vacío si el estado es OK). */
   criteriosNoCumplidos: string[];
-  /** Horarios del nivel alcanzado cuando no se llegó al 8 (para mostrar la mejor aproximación). */
+  /**
+   * Horarios del nivel alcanzado cuando no se llegó al 8. NO son válidos: se muestran
+   * marcados como tales y se pueden guardar con confirmación.
+   */
   horariosNivelAlcanzado: Horario[];
   /** True si la búsqueda se detuvo al llegar al límite de horarios pedido. */
   truncado: boolean;

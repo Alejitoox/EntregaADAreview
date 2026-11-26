@@ -15,9 +15,19 @@ import {
   indexarCatalogo,
 } from "../src/domain/scheduling/exportar.ts";
 import { generarDesdeArchivo, validarArchivo, vistaDeCompacto } from "../src/application/scheduling/ejecutar-archivo.ts";
-import { textoDeHorario, textoDeResultado } from "../src/application/scheduling/exportar-bajo-demanda.ts";
+import {
+  textoDeHorario,
+  textoDeResultado,
+  validezDeHorario,
+} from "../src/application/scheduling/exportar-bajo-demanda.ts";
 import { verificarHorarioGuardado } from "../src/application/scheduling/validar-horario-guardado.ts";
-import { cumpleNivel, cumpleSoloNivel, huecosDelDia, NOMBRE_DE_NIVEL } from "../src/domain/scheduling/niveles.ts";
+import {
+  criteriosIncumplidosDe,
+  cumpleNivel,
+  cumpleSoloNivel,
+  huecosDelDia,
+  NOMBRE_DE_NIVEL,
+} from "../src/domain/scheduling/niveles.ts";
 import { preprocesar } from "../src/domain/scheduling/preprocesamiento.ts";
 import { parsearJson, validarEntrada, validarOLanzar } from "../src/domain/scheduling/validacion.ts";
 import {
@@ -234,6 +244,69 @@ test("nivel 1: ejemplo del informe — la media pesa más que la baja", () => {
   const inst = instanciaDe(entrada);
   // En el nivel 1 todavía no se mira el máximo de créditos; con él (nivel 2) queda una sola opción.
   assert.deepEqual(llaves(buscarSelecciones(inst, 2).selecciones), ["W-1+X-1+Y-1"]);
+  // Y es el único horario válido de la versión final: W + X + Z no vale (Y debe entrar antes que Z).
+  const { resultado } = ejecutar(entrada);
+  assert.equal(resultado.estado, "OK");
+  assert.deepEqual(resultado.horarios.map(llave), ["W-1+X-1+Y-1"]);
+  const sel = (...ids) => ids.map((id) => inst.grupos.get(id));
+  assert.equal(cumpleNivel(8, sel("W-1", "X-1", "Z-1"), inst), false);
+});
+
+/** Caso de la revisión: A alta el lunes, B baja solo el viernes, y el viernes se pide libre. */
+const CASO_MAXIMALIDAD = () =>
+  caso({
+    materias: [["A", 3], ["B", 3]],
+    grupos: [
+      ["A-1", "A", "P1", 5, ["lunes 08:00-10:00"]],
+      ["B-1", "B", "P1", 5, ["viernes 08:00-10:00"]],
+    ],
+    perfil: {
+      creditosMin: 3,
+      creditosMax: 9,
+      diasLibres: ["viernes"],
+      materias: [["A", "alta"], ["B", "baja"]],
+    },
+  });
+
+test("nivel 1: una materia omitida solo obliga a entrar si el horario resultante cumple lo demás", () => {
+  // Meter B rompe los días libres, así que B no obliga: A sola es un horario válido.
+  const { resultado } = ejecutar(CASO_MAXIMALIDAD());
+  assert.equal(resultado.estado, "OK");
+  assert.deepEqual(resultado.horarios.map(llave), ["A-1"]);
+  assert.deepEqual(resultado.horarios[0].omitidas, [
+    { materiaId: "B", razones: ["tiene clase en día libre (viernes)"] },
+  ]);
+});
+
+test("nivel 1: los conjuntos de cada nivel ya no están anidados (la maximalidad del nivel k mira hasta k)", () => {
+  const inst = instanciaDe(CASO_MAXIMALIDAD());
+  // Hasta el nivel 5 los días libres no están en juego: B debe entrar.
+  assert.deepEqual(llaves(buscarSelecciones(inst, 5).selecciones), ["A-1+B-1"]);
+  // Desde el 6, meter B rompería los días libres: el horario es A sola, que NO está en el nivel 5.
+  assert.deepEqual(llaves(buscarSelecciones(inst, 6).selecciones), ["A-1"]);
+  assert.deepEqual(llaves(buscarSelecciones(inst, 8).selecciones), ["A-1"]);
+});
+
+test("nivel 1: tampoco obliga a cambiar una baja por una media si el cambio rompe otro criterio", () => {
+  // M (media) solo tiene grupo el viernes (día libre): no desplaza a la baja L.
+  const entrada = caso({
+    materias: [["A", 3], ["M", 3], ["L", 3]],
+    grupos: [
+      ["A-1", "A", "P1", 5, ["lunes 08:00-10:00"]],
+      ["M-1", "M", "P1", 5, ["viernes 08:00-10:00"]],
+      ["L-1", "L", "P1", 5, ["martes 08:00-10:00"]],
+    ],
+    perfil: {
+      creditosMax: 6,
+      diasLibres: ["viernes"],
+      materias: [["A", "alta"], ["M", "media"], ["L", "baja"]],
+    },
+  });
+  const { resultado, instancia } = ejecutar(entrada);
+  assert.equal(resultado.estado, "OK");
+  assert.deepEqual(resultado.horarios.map(llave), ["A-1+L-1"]);
+  // Sin el día libre en juego (nivel 5), M sí desplaza a L.
+  assert.deepEqual(llaves(buscarSelecciones(instancia, 5).selecciones), ["A-1+M-1"]);
 });
 
 test("nivel 1: toda materia alta debe estar incluida", () => {
@@ -414,19 +487,65 @@ test("desempate: sin preferencias, todos empatan y se ordenan de forma estable",
 /* Estados y motivos                                                  */
 /* ------------------------------------------------------------------ */
 
-test("materia alta sin grupos: SIN_HORARIO inmediato indicando cuál es", () => {
+test("materia alta sin grupos: se busca con las demás y esos horarios NO son válidos", () => {
+  const entrada = caso({
+    materias: [["A", 3], ["B", 3], ["C", 3]],
+    grupos: [
+      ["A-1", "A", "P1", 5, ["lunes 08:00-10:00"]],
+      ["C-1", "C", "P1", 5, ["martes 08:00-10:00"]],
+    ],
+    perfil: { materias: [["A", "media"], ["B", "alta"], ["C", "baja"]] },
+  });
+  const { resultado, instancia } = ejecutar(entrada);
+  assert.equal(resultado.estado, "SIN_HORARIO");
+  assert.equal(
+    resultado.motivo,
+    "La materia alta Materia B (B) no se pudo inscribir porque no tiene grupos en el catálogo.",
+  );
+  assert.deepEqual(resultado.horarios, []);
+  // Con las demás materias se arma el horario completo (A y C), con B omitida por no tener grupos.
+  assert.deepEqual(resultado.horariosNivelAlcanzado.map(llave), ["A-1+C-1"]);
+  assert.deepEqual(resultado.horariosNivelAlcanzado[0].omitidas, [
+    { materiaId: "B", razones: ["sin grupos en el catálogo"] },
+  ]);
+  // Estrictamente solo cumple el nivel 0: sin una materia alta no se pasa la prioridad.
+  assert.equal(resultado.nivelAlcanzado, 0);
+  assert.deepEqual(resultado.criteriosNoCumplidos, ["prioridad"]);
+  const grupos = ["A-1", "C-1"].map((id) => instancia.grupos.get(id));
+  assert.deepEqual(
+    criteriosIncumplidosDe(grupos, instancia).map((i) => [i.criterio, i.detalle]),
+    [["prioridad", "falta la materia alta Materia B (B): no tiene grupos en el catálogo"]],
+  );
+});
+
+test("materia alta sin grupos y las demás tampoco cumplen todo: se informa la alta y el resto", () => {
   const entrada = caso({
     materias: [["A", 3], ["B", 3]],
-    grupos: [["A-1", "A", "P1", 5, ["lunes 08:00-10:00"]]],
-    perfil: { materias: [["A", "media"], ["B", "alta"]] },
+    grupos: [["A-1", "A", "P1", 5, ["viernes 08:00-10:00"]]],
+    perfil: { diasLibres: ["viernes"], materias: [["A", "media"], ["B", "alta"]] },
   });
   const { resultado } = ejecutar(entrada);
   assert.equal(resultado.estado, "SIN_HORARIO");
-  assert.match(resultado.motivo, /B/);
-  assert.deepEqual(resultado.horarios, []);
-  // El nivel 0 (sin cruces y con cupos) sí se alcanza con A solo; lo que falla es la prioridad.
+  assert.match(resultado.motivo, /Materia B \(B\) no se pudo inscribir/);
   assert.equal(resultado.nivelAlcanzado, 0);
+  assert.deepEqual(resultado.criteriosNoCumplidos, ["prioridad", "diasLibres"]);
   assert.deepEqual(resultado.horariosNivelAlcanzado.map(llave), ["A-1"]);
+});
+
+test("materia alta sin grupos y ninguna otra con grupos: solo el aviso, sin horarios", () => {
+  const entrada = caso({
+    materias: [["A", 3], ["B", 3], ["C", 3]],
+    grupos: [["X-1", "A", "P1", 5, ["lunes 08:00-10:00"]]],
+    perfil: { materias: [["B", "alta"], ["C", "alta"]] },
+  });
+  const { resultado } = ejecutar(entrada);
+  assert.equal(resultado.estado, "SIN_HORARIO");
+  assert.equal(
+    resultado.motivo,
+    "Las materias altas Materia B (B) y Materia C (C) no se pudieron inscribir porque no tienen grupos en el catálogo.",
+  );
+  assert.deepEqual(resultado.horariosNivelAlcanzado, []);
+  assert.equal(resultado.nivelAlcanzado, -1);
   assert.deepEqual(resultado.criteriosNoCumplidos, ["prioridad"]);
 });
 
@@ -565,6 +684,7 @@ function* combinaciones(inst) {
 test("la búsqueda con podas coincide con la fuerza bruta en todos los niveles (150 casos aleatorios)", () => {
   let niveles = 0;
   let conSolucionCompleta = 0;
+  let noAnidados = 0;
   for (let semilla = 1; semilla <= 150; semilla += 1) {
     const entrada = generarCaso(semilla, { materias: 3 + (semilla % 3), gruposPorMateria: 2 });
     const inst = instanciaDe(entrada);
@@ -576,14 +696,20 @@ test("la búsqueda con podas coincide con la fuerza bruta en todos los niveles (
       const obtenido = llaves(buscarSelecciones(inst, nivel, Infinity).selecciones);
       assert.deepEqual(obtenido, esperado, `semilla ${semilla}, nivel ${nivel}`);
 
-      // Los niveles son acumulativos: al subir de nivel el conjunto solo se achica.
-      if (anterior) assert.ok(obtenido.every((k) => anterior.includes(k)), `semilla ${semilla}: nivel ${nivel} no está contenido en el anterior`);
+      // Los conjuntos ya no están anidados (la maximalidad del nivel k mira los criterios
+      // hasta k), pero "el nivel tiene horarios" sí es monótono: si el nivel k tiene, el
+      // k − 1 también. Es lo que necesita la búsqueda binaria del nivel alcanzado.
+      if (anterior) {
+        assert.ok(obtenido.length === 0 || anterior.length > 0, `semilla ${semilla}: nivel ${nivel} tiene horarios y el anterior no`);
+        if (obtenido.some((k) => !anterior.includes(k))) noAnidados += 1;
+      }
       anterior = obtenido;
       niveles += 1;
       if (nivel === 8 && obtenido.length > 0) conSolucionCompleta += 1;
     }
   }
   assert.equal(niveles, 150 * 9);
+  assert.ok(noAnidados > 0, "se esperaba ver algún nivel que no está contenido en el anterior");
   // Que el generador produzca de todo: algunos casos con solución y otros sin ella.
   assert.ok(conSolucionCompleta > 10, `solo ${conSolucionCompleta} casos con solución`);
   assert.ok(conSolucionCompleta < 150, "todos los casos tenían solución: el generador es muy fácil");
@@ -855,8 +981,18 @@ test("descargas bajo demanda de un resultado SIN_HORARIO y de uno inválido", ()
   const sin = UNA_MATERIA({ diasLibres: ["viernes"] }, [["G1", "A", "P1", 5, ["viernes 08:00-10:00"]]]);
   const respuestaSin = generarDesdeArchivo(sin);
   const dominio = ejecutar(sin);
-  assert.equal(textoDeResultado("json", respuestaSin, sin), exportarJSON(dominio.resultado));
-  assert.equal(textoDeResultado("txt", respuestaSin, sin), exportarTXT(dominio.resultado, dominio.instancia.catalogo));
+  const validez = (h) => ({
+    cumpleHastaNivel: dominio.resultado.nivelAlcanzado,
+    incumplimientos: criteriosIncumplidosDe(
+      h.asignaciones.map((a) => dominio.instancia.grupos.get(a.grupoId)),
+      dominio.instancia,
+    ),
+  });
+  assert.equal(textoDeResultado("json", respuestaSin, sin), exportarJSON(dominio.resultado, validez));
+  assert.equal(
+    textoDeResultado("txt", respuestaSin, sin),
+    exportarTXT(dominio.resultado, dominio.instancia.catalogo, validez),
+  );
 
   const invalido = casosInvalidos()[4].texto;
   const respuestaInv = generarDesdeArchivo(invalido);
@@ -910,4 +1046,153 @@ test("el resultado de un archivo inválido se exporta con su lista de errores", 
   const txt = exportarTXT(resultado, null);
   assert.match(txt, /ARCHIVO INVÁLIDO/);
   assert.match(txt, /\[VALOR_NO_PERMITIDO\] catalogo\.grupos\[0\]\.sesiones\[0\]\.dia/);
+});
+
+/* ------------------------------------------------------------------ */
+/* Horarios que NO cumplen todo: qué criterio y qué materia lo rompe  */
+/* ------------------------------------------------------------------ */
+
+/** Criterios incumplidos de una selección dada por ids de grupos: [criterio, detalle, responsables]. */
+function incumplidos(entrada, ...ids) {
+  const inst = instanciaDe(entrada);
+  return criteriosIncumplidosDe(ids.map((id) => inst.grupos.get(id)), inst).map((i) => [
+    i.criterio,
+    i.detalle,
+    i.responsables.map((r) => `${r.materiaId}/${r.grupoId}${r.sesion ? `/${r.sesion.dia}` : ""}`),
+  ]);
+}
+
+test("incumplidos: un horario válido no incumple nada", () => {
+  const { resultado, instancia } = ejecutar(casoBaseValido());
+  for (const h of resultado.horarios) {
+    const grupos = h.asignaciones.map((a) => instancia.grupos.get(a.grupoId));
+    assert.deepEqual(criteriosIncumplidosDe(grupos, instancia), []);
+  }
+});
+
+test("incumplidos: días libres y almuerzo señalan la materia, el grupo y la sesión", () => {
+  const entrada = caso({
+    materias: [["A", 3], ["B", 3]],
+    grupos: [
+      ["A-1", "A", "P1", 5, ["lunes 12:00-14:00"]],
+      ["B-1", "B", "P1", 5, ["viernes 08:00-10:00"]],
+    ],
+    perfil: { diasLibres: ["viernes"], materias: [["A", "alta"], ["B", "alta"]] },
+  });
+  assert.deepEqual(incumplidos(entrada, "A-1", "B-1"), [
+    ["almuerzo", "Materia A, grupo A-1, el lunes 12:00 a 14:00", ["A/A-1/lunes"]],
+    ["diasLibres", "Materia B, grupo B-1, el viernes 08:00 a 10:00", ["B/B-1/viernes"]],
+  ]);
+});
+
+test("incumplidos: huecos, franja, profesor, créditos y amigos", () => {
+  const entrada = caso({
+    materias: [["A", 3], ["B", 3]],
+    grupos: [
+      ["A-1", "A", "P1", 5, ["lunes 08:00-09:00"]],
+      ["B-1", "B", "P2", 5, ["lunes 10:30-12:00"]],
+    ],
+    perfil: {
+      creditosMin: 9,
+      huecos: { tipo: "cortos", maxMinutos: 60 },
+      franja: { inicio: "08:00", fin: "11:00" },
+      amigos: ["E9"],
+      minCoincidenciasAmigos: 1,
+      materias: [["A", "alta"], ["B", "alta", ["P1"]]],
+    },
+  });
+  assert.deepEqual(incumplidos(entrada, "A-1", "B-1"), [
+    ["creditos", "6 créditos; mínimo 9", []],
+    ["huecos", "90 min el lunes entre Materia A y Materia B (máximo 60 min)", ["A/A-1/lunes", "B/B-1/lunes"]],
+    ["franja", "Materia B, grupo B-1, el lunes 10:30 a 12:00 (franja 08:00 a 11:00)", ["B/B-1/lunes"]],
+    ["profesor", "Materia B con Prof P2, que no está en tu lista", ["B/B-1"]],
+    ["amigos", "0 coincidencias de 1 pedidas", []],
+  ]);
+});
+
+test("incumplidos: prioridad dice qué alta falta o qué materia se podía agregar", () => {
+  const entrada = caso({
+    materias: [["A", 3], ["B", 3]],
+    grupos: [
+      ["A-1", "A", "P1", 5, ["lunes 08:00-10:00"]],
+      ["B-1", "B", "P1", 5, ["martes 08:00-10:00"]],
+    ],
+    perfil: { materias: [["A", "alta"], ["B", "media"]] },
+  });
+  assert.deepEqual(incumplidos(entrada, "B-1"), [
+    ["prioridad", "falta la materia alta Materia A (A)", ["A/null"]],
+  ]);
+  assert.deepEqual(incumplidos(entrada, "A-1"), [
+    ["prioridad", "Materia B se podía agregar (grupo B-1)", ["B/B-1"]],
+  ]);
+});
+
+test("cada horario que no cumple todo trae al menos un criterio incumplido (150 casos)", () => {
+  let revisados = 0;
+  for (let semilla = 1; semilla <= 150; semilla += 1) {
+    const { resultado, instancia } = ejecutar(generarCaso(semilla));
+    if (resultado.estado !== "SIN_HORARIO") continue;
+    for (const h of resultado.horariosNivelAlcanzado) {
+      const grupos = h.asignaciones.map((a) => instancia.grupos.get(a.grupoId));
+      const lista = criteriosIncumplidosDe(grupos, instancia);
+      assert.ok(lista.length > 0, `semilla ${semilla}, horario ${h.id}`);
+      // Solo criterios por encima del nivel alcanzado (los de abajo sí se cumplen).
+      for (const i of lista) assert.ok(i.nivel > resultado.nivelAlcanzado, `semilla ${semilla}: ${i.criterio}`);
+      revisados += 1;
+    }
+  }
+  assert.ok(revisados > 10, `solo ${revisados} horarios revisados`);
+});
+
+test("descargas de un horario NO válido: dicen NO VÁLIDO y qué criterios no cumple", () => {
+  const entrada = UNA_MATERIA({ diasLibres: ["viernes"] }, [["G1", "A", "P1", 5, ["viernes 08:00-10:00"]]]);
+  const respuesta = generarDesdeArchivo(entrada);
+  assert.equal(respuesta.estado, "SIN_HORARIO");
+  const horario = respuesta.horariosNivelAlcanzado[0];
+
+  const txt = textoDeHorario("txt", horario, entrada, respuesta.nivelAlcanzado);
+  const lineas = txt.split("\n");
+  assert.equal(lineas[1], "NO VÁLIDO: cumple hasta el nivel 5 de 8");
+  assert.equal(lineas[2], "No cumple: Días libres (Materia A, grupo G1, el viernes 08:00 a 10:00)");
+
+  const json = JSON.parse(textoDeHorario("json", horario, entrada, respuesta.nivelAlcanzado));
+  assert.equal(json.validez, "NO VÁLIDO");
+  assert.equal(json.cumpleHastaNivel, 5);
+  assert.deepEqual(json.criteriosNoCumplidos, [
+    {
+      criterio: "diasLibres",
+      detalle: "Materia A, grupo G1, el viernes 08:00 a 10:00",
+      responsables: [{ materiaId: "A", grupoId: "G1", sesion: { dia: "viernes", inicio: "08:00", fin: "10:00" } }],
+    },
+  ]);
+  assert.deepEqual(validezDeHorario(horario, entrada, 5).incumplimientos.map((i) => i.criterio), ["diasLibres"]);
+
+  // La lista completa marca cada horario del nivel alcanzado.
+  const todo = JSON.parse(textoDeResultado("json", respuesta, entrada));
+  assert.equal(todo.horariosNivelAlcanzado[0].validez, "NO VÁLIDO");
+  assert.equal(todo.horariosNivelAlcanzado[0].criteriosNoCumplidos[0].criterio, "diasLibres");
+  const todoTxt = textoDeResultado("txt", respuesta, entrada);
+  assert.match(todoTxt, /Horarios válidos: 0/);
+  assert.match(todoTxt, /Cumple hasta el nivel 5 de 8/);
+  assert.match(todoTxt, /Horario 1 \(3 créditos\) - NO VÁLIDO\n  No cumple: Días libres/);
+});
+
+test("descargas de un horario válido: igual que antes, sin marca", () => {
+  const entrada = casoBaseValido();
+  const respuesta = generarDesdeArchivo(entrada);
+  const horario = respuesta.horarios[0];
+  assert.equal(validezDeHorario(horario, entrada, 8), null);
+  assert.doesNotMatch(textoDeHorario("txt", horario, entrada, 8), /NO VÁLIDO/);
+  assert.equal(textoDeHorario("txt", horario, entrada, 8), textoDeHorario("txt", horario, entrada));
+  assert.equal("validez" in JSON.parse(textoDeHorario("json", horario, entrada, 8)), false);
+});
+
+test("guardar: un horario NO válido se acepta con el nivel que de verdad cumple", () => {
+  const entrada = UNA_MATERIA({ diasLibres: ["viernes"] }, [["G1", "A", "P1", 5, ["viernes 08:00-10:00"]]]);
+  const schedule = { name: "Horario 1", courses: [{ courseId: "A", sectionId: "G1", meetings: [] }] };
+  assert.equal(verificarHorarioGuardado({ sourceJson: entrada, schedule, level: 5, title: "t" }).ok, true);
+  assert.match(
+    verificarHorarioGuardado({ sourceJson: entrada, schedule, level: 8, title: "t" }).error,
+    /no cumple el nivel 8/,
+  );
 });
