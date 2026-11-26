@@ -20,6 +20,7 @@ sin las variables de Supabase la página muestra "Falta configurar Supabase".
 | `POST /api/generate` | Valida el JSON (`validateOnly`) o valida y ejecuta los niveles 0 a 8. |
 | `GET /api/schedules` | Los horarios guardados del usuario de la sesión (solo los suyos). |
 | `POST /api/schedules` | Guarda `{ title, level, sourceJson, schedule }`. `level` es el nivel hasta el que cumple el horario (8 = válido). El servidor vuelve a validar el archivo y comprueba que el horario cumpla de verdad ese nivel antes de guardarlo; inserta la fila en `user_schedule` y la del dueño en `schedule_participant`. |
+| `DELETE /api/schedules?id=N` | Elimina un horario guardado del usuario de la sesión (solo si es su dueño). La fila de `schedule_participant` se borra en cascada. |
 
 Ya no existe `/api/users` (exponía el nombre y el correo de todos los usuarios para
 compartir horarios, función que se quitó).

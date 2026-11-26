@@ -318,7 +318,9 @@ cierra solo la cuenta actual. Se guardan solo los tokens de sesión, nunca contr
    también se puede descargar **todo el resultado**. Los textos se arman al pulsar el
    botón (no viajan con el resultado). Un horario no válido se descarga marcado
    "NO VÁLIDO" con los criterios que no cumple. Guardar uno no válido pide
-   confirmación. Al guardar, el servidor **vuelve a verificar**
+   confirmación. Un horario guardado se puede **eliminar** con el ícono de basura de su
+   tarjeta (pide confirmación; el servidor solo borra horarios del propio usuario). Al
+   guardar, el servidor **vuelve a verificar**
    el horario: el grupo existe y es de esa materia, no hay cruces, y cumple el nivel
    declarado; lo que se guarda se reconstruye desde el catálogo, no se confía en lo que
    mande el navegador.

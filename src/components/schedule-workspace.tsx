@@ -37,7 +37,8 @@ function Icon({
     | "file"
     | "play"
     | "check"
-    | "arrow";
+    | "arrow"
+    | "trash";
   size?: number;
 }) {
   const paths: Record<string, ReactNode> = {
@@ -75,6 +76,12 @@ function Icon({
     play: <path d="m9 7 8 5-8 5z" />,
     check: <path d="m5 12 4 4L19 6" />,
     arrow: <path d="m15 18-6-6 6-6" />,
+    trash: (
+      <>
+        <path d="M4 7h16M9.5 7V4.5h5V7" />
+        <path d="M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5" />
+      </>
+    ),
   };
   return (
     <svg
@@ -1067,6 +1074,24 @@ function Saved({
 }) {
   const [schedules, setSchedules] = useState<SavedSchedule[] | null>(null);
   const [error, setError] = useState("");
+  const [toDelete, setToDelete] = useState<SavedSchedule | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  /** Borra el horario en la base de datos y lo quita de la lista. */
+  async function remove(record: SavedSchedule) {
+    setDeleting(true);
+    setError("");
+    try {
+      await api(`/api/schedules?id=${encodeURIComponent(record.id)}`, { method: "DELETE" });
+      setSchedules((current) => current?.filter((item) => item.id !== record.id) ?? null);
+      setToDelete(null);
+    } catch (cause) {
+      setError(message(cause));
+      setToDelete(null);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1110,6 +1135,16 @@ function Saved({
           };
           return (
             <article className="saved-card" key={record.id}>
+              <button
+                type="button"
+                className="delete-saved"
+                aria-label={`Eliminar ${record.title}`}
+                title="Eliminar horario guardado"
+                disabled={deleting}
+                onClick={() => setToDelete(record)}
+              >
+                <Icon name="trash" size={18} />
+              </button>
               <div>
                 <h2>{record.title}</h2>
                 {isValidLevel(record.level) ? (
@@ -1136,7 +1171,60 @@ function Saved({
           );
         })}
       </div>
+      {toDelete && (
+        <ConfirmDelete
+          title={toDelete.title}
+          busy={deleting}
+          onCancel={() => setToDelete(null)}
+          onConfirm={() => void remove(toDelete)}
+        />
+      )}
     </>
+  );
+}
+
+/** Confirmación antes de borrar un horario guardado (no se puede deshacer). */
+function ConfirmDelete({
+  title,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onCancel]);
+  return (
+    <div className="dialog-overlay" role="presentation" onClick={busy ? undefined : onCancel}>
+      <div
+        className="dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="delete-title">¿Eliminar este horario guardado?</h2>
+        <p>
+          Se eliminará <b>{title}</b> de tus horarios guardados. Esta acción no se puede deshacer.
+        </p>
+        <div className="actions dialog-actions">
+          <Button autoFocus disabled={busy} onClick={onCancel}>
+            Cancelar
+          </Button>
+          <Button warning disabled={busy} onClick={onConfirm}>
+            {busy ? "Eliminando…" : "Eliminar"}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

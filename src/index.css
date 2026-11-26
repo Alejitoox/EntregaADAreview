@@ -1435,3 +1435,39 @@
   margin-top: 22px;
   justify-content: flex-end;
 }
+
+/* ---- Eliminar un horario guardado ---- */
+.saved-card {
+  position: relative;
+}
+
+.delete-saved {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #8a94a3;
+  background: transparent;
+  cursor: pointer;
+}
+
+.delete-saved:hover:not(:disabled),
+.delete-saved:focus-visible {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.delete-saved:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.saved-card > div:first-of-type {
+  padding-right: 34px;
+}

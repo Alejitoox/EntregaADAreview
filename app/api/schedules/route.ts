@@ -55,6 +55,34 @@ export async function GET(request: Request) {
 }
 
 /**
+ * DELETE /api/schedules?id=N: borra un horario guardado del usuario de la sesión. Solo
+ * borra si el usuario es su dueño; la fila de schedule_participant se borra en cascada.
+ */
+export async function DELETE(request: Request) {
+  if (!authEnabled) return sinConfigurar();
+  const usuario = await usuarioAutenticado(request);
+  if (!usuario) return NextResponse.json({ error: "Inicia sesión para continuar." }, { status: 401 });
+
+  const id = Number(new URL(request.url).searchParams.get("id"));
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return NextResponse.json({ error: "Indica qué horario quieres eliminar." }, { status: 400 });
+  }
+  try {
+    const { rowCount } = await pool.query(
+      "DELETE FROM user_schedule WHERE schedule_id = $1 AND created_by_user_id = $2",
+      [id, usuario.id],
+    );
+    if (!rowCount) {
+      return NextResponse.json({ error: "Ese horario no existe o no es tuyo." }, { status: 404 });
+    }
+    return NextResponse.json({ deleted: id });
+  } catch (error) {
+    console.error("No se pudo eliminar el horario", error);
+    return NextResponse.json({ error: "No se pudo eliminar el horario." }, { status: 503 });
+  }
+}
+
+/**
  * POST { title, level, sourceJson, schedule }: guarda un horario del usuario de la sesión.
  * `level` es el nivel hasta el que cumple (8 = válido). Se verifica contra el archivo de
  * origen antes de guardar.

@@ -23,7 +23,8 @@ horario guardado conserva el horario y el JSON de origen.
 
 ## Flujo de pantallas
 
-Inicio de sesión → **Mis horarios guardados** (es el inicio) → Subir JSON → Horarios
+Inicio de sesión → **Mis horarios guardados** (es el inicio; cada horario se puede abrir,
+descargar o eliminar con el ícono de basura, previa confirmación) → Subir JSON → Horarios
 generados → calendario semanal → guardar o descargar. La barra muestra Guardados y
 Subir JSON, y "Horarios generados" cuando ya hay un resultado.
 

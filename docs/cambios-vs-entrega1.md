@@ -240,6 +240,10 @@ y lista los horarios como `Horario n (c créditos) - NO VÁLIDO`.
   Guardados, Subir JSON y Horarios generados (esta última cuando hay un resultado).
 - **Un solo estudiante.** Se quitaron el selector "Participantes del horario", la ruta
   `/api/users` y la opción de compartir horarios, que no estaban en el alcance (1.3).
+- **Eliminar horarios guardados.** Cada horario guardado tiene un ícono de basura para
+  eliminarlo, previa confirmación. El informe no lo menciona; sugerencia para 3.3 y el
+  TAD Sistema: "EliminarHorarioGuardado(id): Precondición: existe y pertenece al usuario
+  autenticado. Postcondición: el horario deja de estar entre los guardados del usuario."
 - **Solo Supabase y Vercel.** Se quitaron el modo local con Docker y los perfiles de
   demostración, que no estaban en la Tabla 6.
 
