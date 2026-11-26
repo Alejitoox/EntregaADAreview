@@ -9,8 +9,12 @@ import {
   datosDeFuente,
   textoDeHorario,
   textoDeResultado,
+  validezDeHorario,
 } from "../application/scheduling/exportar-bajo-demanda.ts";
 import { vistaDeCompacto, type HorarioCompacto } from "../application/scheduling/ejecutar-archivo.ts";
+import type { Validez } from "../domain/scheduling/exportar.ts";
+import { DIAS } from "../domain/scheduling/modelo.ts";
+import { etiquetaDeCriterio, NIVEL_MAXIMO } from "../domain/scheduling/niveles.ts";
 import {
   guardarCuenta,
   leerCuentas,
@@ -18,7 +22,7 @@ import {
   type CuentaRecordada,
 } from "../infrastructure/supabase/cuentas-recordadas";
 
-type View = "auth" | "home" | "generated" | "saved" | "upload" | "calendar";
+type View = "auth" | "generated" | "saved" | "upload" | "calendar";
 type User = { id: string; name: string; email: string };
 function Icon({
   name,
@@ -93,23 +97,28 @@ function Button({
   children,
   icon,
   primary = false,
+  warning = false,
   active = false,
   disabled = false,
+  autoFocus = false,
   onClick,
 }: {
   children: ReactNode;
   icon?: Parameters<typeof Icon>[0]["name"];
   primary?: boolean;
+  warning?: boolean;
   active?: boolean;
   disabled?: boolean;
+  autoFocus?: boolean;
   onClick?: () => void;
 }) {
   return (
     <button
       type="button"
-      className={`button ${primary ? "button-primary" : ""} ${active ? "button-saved" : ""}`}
+      className={`button ${primary ? "button-primary" : ""} ${warning ? "button-warning" : ""} ${active ? "button-saved" : ""}`}
       onClick={onClick}
       disabled={disabled}
+      autoFocus={autoFocus}
     >
       {icon && <Icon name={icon} />}
       {children}
@@ -127,21 +136,23 @@ function Header({
   view,
   setView,
   user,
-  users,
-  setUser,
+  hasResult,
   accounts,
 }: {
   view: View;
   setView: (view: View) => void;
   user: User;
-  users: User[];
-  setUser: (user: User) => void;
-  accounts?: AccountControls;
+  hasResult: boolean;
+  accounts: AccountControls;
 }) {
   return (
     <header className="header">
       <div className="header-inner">
-        <button className="brand" onClick={() => setView("home")} aria-label="Ir al inicio">
+        <button
+          className="brand"
+          onClick={() => setView("saved")}
+          aria-label="Ir a mis horarios guardados"
+        >
           <span className="brand-mark">H</span>
           <span>
             <strong>Mis horarios</strong>
@@ -149,15 +160,6 @@ function Header({
           </span>
         </button>
         <nav className="nav">
-          <button className={view === "home" ? "nav-active" : ""} onClick={() => setView("home")}>
-            Inicio
-          </button>
-          <button
-            className={view === "generated" ? "nav-active" : ""}
-            onClick={() => setView("generated")}
-          >
-            Horarios
-          </button>
           <button className={view === "saved" ? "nav-active" : ""} onClick={() => setView("saved")}>
             Guardados
           </button>
@@ -167,116 +169,77 @@ function Header({
           >
             Subir JSON
           </button>
+          {hasResult && (
+            <button
+              className={view === "generated" ? "nav-active" : ""}
+              onClick={() => setView("generated")}
+            >
+              Horarios generados
+            </button>
+          )}
         </nav>
         <div className="account">
-          {authEnabled && (
-            <details className="account-switcher">
-              <summary aria-label="Cambiar de usuario">
-                <span className="avatar">
-                  <Icon name="user" />
-                </span>
-                <span className="account-copy">
-                  <strong>{user.name}</strong>
-                  <small>{user.email}</small>
-                </span>
-                <span className="switch-chevron" />
-              </summary>
-              <div className="account-menu">
-                <div className="account-menu-heading">
-                  <strong>Cambiar de usuario</strong>
-                  <small>
-                    {accounts?.list.length ?? 1}{" "}
-                    {(accounts?.list.length ?? 1) === 1 ? "cuenta" : "cuentas"} en este navegador
-                  </small>
-                </div>
-                <div className="account-options">
-                  {(accounts?.list ?? []).map((account) => (
-                    <button
-                      className={account.id === user.id ? "selected" : ""}
-                      type="button"
-                      key={account.id}
-                      onClick={(event) => {
-                        event.currentTarget.closest("details")?.removeAttribute("open");
-                        if (account.id !== user.id) void accounts?.onSwitch(account.id);
-                      }}
-                    >
-                      <span className="menu-avatar">
-                        {account.name
-                          .split(" ")
-                          .filter(Boolean)
-                          .slice(0, 2)
-                          .map((part) => part[0])
-                          .join("")
-                          .toUpperCase()}
-                      </span>
-                      <span>
-                        <strong>{account.name}</strong>
-                        <small>{account.email}</small>
-                      </span>
-                      {account.id === user.id && <Icon name="check" size={17} />}
-                    </button>
-                  ))}
-                </div>
-                <div className="account-footer">
+          <details className="account-switcher">
+            <summary aria-label="Cambiar de usuario">
+              <span className="avatar">
+                <Icon name="user" />
+              </span>
+              <span className="account-copy">
+                <strong>{user.name}</strong>
+                <small>{user.email}</small>
+              </span>
+              <span className="switch-chevron" />
+            </summary>
+            <div className="account-menu">
+              <div className="account-menu-heading">
+                <strong>Cambiar de usuario</strong>
+                <small>
+                  {accounts?.list.length ?? 1}{" "}
+                  {(accounts?.list.length ?? 1) === 1 ? "cuenta" : "cuentas"} en este navegador
+                </small>
+              </div>
+              <div className="account-options">
+                {(accounts?.list ?? []).map((account) => (
                   <button
-                    className="account-add"
+                    className={account.id === user.id ? "selected" : ""}
                     type="button"
+                    key={account.id}
                     onClick={(event) => {
                       event.currentTarget.closest("details")?.removeAttribute("open");
-                      accounts?.onAdd();
+                      if (account.id !== user.id) void accounts?.onSwitch(account.id);
                     }}
                   >
-                    + Agregar otra cuenta
+                    <span className="menu-avatar">
+                      {account.name
+                        .split(" ")
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((part) => part[0])
+                        .join("")
+                        .toUpperCase()}
+                    </span>
+                    <span>
+                      <strong>{account.name}</strong>
+                      <small>{account.email}</small>
+                    </span>
+                    {account.id === user.id && <Icon name="check" size={17} />}
                   </button>
-                </div>
+                ))}
               </div>
-            </details>
-          )}
-          {!authEnabled && (
-            <details className="account-switcher">
-              <summary aria-label="Cambiar usuario">
-                <span className="avatar">
-                  <Icon name="user" />
-                </span>
-                <span className="account-copy">
-                  <strong>{user.name}</strong>
-                  <small>Usuario de prueba</small>
-                </span>
-                <span className="switch-chevron" />
-              </summary>
-              <div className="account-menu">
-                <div className="account-menu-heading">
-                  <strong>Cambiar usuario</strong>
-                  <small>{users.length} perfiles disponibles</small>
-                </div>
-                <div className="account-options">
-                  {users.map((profile) => (
-                    <button
-                      className={profile.id === user.id ? "selected" : ""}
-                      type="button"
-                      key={profile.id}
-                      onClick={(event) => {
-                        setUser(profile);
-                        event.currentTarget.closest("details")?.removeAttribute("open");
-                      }}
-                    >
-                      <span className="menu-avatar">
-                        {profile.name
-                          .split(" ")
-                          .map((part) => part[0])
-                          .join("")}
-                      </span>
-                      <span>
-                        <strong>{profile.name}</strong>
-                        <small>{profile.email}</small>
-                      </span>
-                      {profile.id === user.id && <Icon name="check" size={17} />}
-                    </button>
-                  ))}
-                </div>
+              <div className="account-footer">
+                <button
+                  className="account-add"
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    accounts?.onAdd();
+                  }}
+                >
+                  + Agregar otra cuenta
+                </button>
               </div>
-            </details>
-          )}
+            </div>
+          </details>
           <button className="logout" onClick={() => setView("auth")}>
             Cerrar sesión
           </button>
@@ -287,16 +250,12 @@ function Header({
 }
 
 function Auth({
-  users,
   status,
-  onLogin,
   onCredentials,
   onCancel,
 }: {
-  users: User[];
   status: string;
   onCancel?: () => void;
-  onLogin: (user: User) => void;
   onCredentials: (
     mode: "login" | "register",
     data: { name: string; email: string; password: string },
@@ -354,7 +313,7 @@ function Auth({
           className="auth-card"
           onSubmit={(event) => {
             event.preventDefault();
-            if (authEnabled) void submit();
+            void submit();
           }}
         >
           <div className="auth-tabs">
@@ -381,49 +340,7 @@ function Auth({
                 : "Regístrate para comenzar a organizar tu semestre."}
             </p>
           </div>
-          {mode === "login" && !authEnabled && (
-            <>
-              <div className="quick-label">
-                <span>Acceso rápido</span>
-                <small>Selecciona un perfil de demostración</small>
-              </div>
-              {status && (
-                <p role="status" className="footnote">
-                  {status}
-                </p>
-              )}
-              <div className="quick-users">
-                {users.map((user) => (
-                  <button
-                    className="quick-user"
-                    type="button"
-                    key={user.id}
-                    onClick={() => onLogin(user)}
-                  >
-                    <span className="quick-avatar">
-                      {user.name
-                        .split(" ")
-                        .map((part) => part[0])
-                        .join("")}
-                    </span>
-                    <span className="quick-user-copy">
-                      <strong>{user.name}</strong>
-                      <small>Usuario de prueba</small>
-                    </span>
-                    <span className="quick-enter">Entrar</span>
-                  </button>
-                ))}
-              </div>
-              <div className="auth-divider">
-                <span>o continúa con tu correo</span>
-              </div>
-            </>
-          )}
-          <fieldset
-            disabled={!authEnabled || submitting}
-            className="auth-fields"
-            aria-describedby="local-access-note"
-          >
+          <fieldset disabled={submitting} className="auth-fields">
             {mode === "register" && (
               <label className="field">
                 <span>Nombre completo</span>
@@ -482,7 +399,7 @@ function Auth({
               ← Volver a mi cuenta actual
             </button>
           )}
-          {authEnabled && status && (
+          {status && (
             <p role="status" className="footnote">
               {status}
             </p>
@@ -492,62 +409,28 @@ function Auth({
               {formMessage}
             </p>
           )}
-          {!authEnabled && (
-            <p id="local-access-note" className="footnote">
-              El acceso con correo se habilita al configurar Supabase (ver docs/supabase.md). Para
-              probar en local, elige un perfil en Acceso rápido.
-            </p>
-          )}
         </form>
       </section>
     </main>
   );
 }
 
-function Home({ setView, user }: { setView: (view: View) => void; user: User }) {
-  const options = [
-    {
-      title: "Subir archivo",
-      description: "Carga un JSON para generar nuevas opciones de horario.",
-      icon: "upload" as const,
-      action: () => setView("upload"),
-    },
-    {
-      title: "Horarios generados",
-      description: "Revisa los horarios válidos encontrados por el algoritmo.",
-      icon: "calendar" as const,
-      action: () => setView("generated"),
-    },
-    {
-      title: "Horarios guardados",
-      description: "Consulta los horarios que decidiste conservar.",
-      icon: "bookmark" as const,
-      action: () => setView("saved"),
-    },
-  ];
-
+/** Sin las variables de Supabase la aplicación no puede iniciar sesión ni guardar. */
+function MissingConfig() {
   return (
-    <section className="home">
-      <div className="home-heading">
-        <span>Panel principal</span>
-        <h1>Hola, {user.name.split(" ")[0]}</h1>
-        <p>¿Qué quieres hacer hoy?</p>
-      </div>
-      <div className="home-options">
-        {options.map((option) => (
-          <button className="home-card" onClick={option.action} key={option.title}>
-            <span className="home-card-icon">
-              <Icon name={option.icon} size={25} />
-            </span>
-            <span>
-              <strong>{option.title}</strong>
-              <small>{option.description}</small>
-            </span>
-            <span className="home-arrow">Ir</span>
-          </button>
-        ))}
-      </div>
-    </section>
+    <main className="auth-page">
+      <section className="auth-form-side">
+        <div className="auth-card">
+          <div className="auth-heading">
+            <h2>Falta configurar Supabase</h2>
+            <p>
+              Define NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY y DATABASE_URL
+              (ver docs/supabase.md) y vuelve a iniciar la aplicación.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -562,15 +445,42 @@ type SavedSchedule = {
   schedule: Partial<ScheduleData>;
   source_json: unknown;
   created_at: string;
-  owner_name: string;
-  participants: (User & { role: "owner" | "participant" })[];
 };
+/** `level` es el nivel hasta el que cumple el horario: 8 es válido, menos es NO válido. */
 type ScheduleView = {
   title: string;
   level: number;
   schedule: ScheduleData;
   source: unknown;
 };
+
+function isValidLevel(level: number) {
+  return level >= NIVEL_MAXIMO;
+}
+
+/** "Días libres (Inglés, grupo ING-02, el viernes 08:00 a 10:00)". */
+function failureText(item: Validez["incumplimientos"][number]) {
+  return `${etiquetaDeCriterio(item.criterio)}${item.detalle ? ` (${item.detalle})` : ""}`;
+}
+
+/** Etiqueta "NO VÁLIDO" con el color de advertencia. */
+function InvalidBadge() {
+  return <span className="badge-invalid">NO VÁLIDO</span>;
+}
+
+/** Líneas "No cumple: …", una por criterio incumplido. */
+function FailureList({ validez }: { validez: Validez | null }) {
+  if (!validez || validez.incumplimientos.length === 0) return null;
+  return (
+    <ul className="fails">
+      {validez.incumplimientos.map((item) => (
+        <li key={item.criterio}>
+          <b>No cumple:</b> {failureText(item)}
+        </li>
+      ))}
+    </ul>
+  );
+}
 type ValidatedFile = { name: string; source: unknown };
 
 /** Estado de la validación inmediata: lista completa de errores, agrupada por bloque. */
@@ -626,9 +536,6 @@ function ValidationErrors({ errors }: { errors: ErrorValidacion[] }) {
 }
 
 function Upload({
-  users,
-  participantIds,
-  onParticipantsChange,
   title,
   onTitleChange,
   file,
@@ -637,9 +544,6 @@ function Upload({
   onCancel,
   busy,
 }: {
-  users: User[];
-  participantIds: string[];
-  onParticipantsChange: (ids: string[]) => void;
   title: string;
   onTitleChange: (title: string) => void;
   file: ValidatedFile | null;
@@ -764,27 +668,6 @@ function Upload({
           </div>
         </>
       )}
-      <fieldset className="participant-picker" disabled={busy}>
-        <legend>Participantes del horario</legend>
-        <p>El horario guardado se compartirá con los perfiles que selecciones.</p>
-        {users.map((user) => (
-          <label key={user.id}>
-            <input
-              type="checkbox"
-              checked={participantIds.includes(user.id)}
-              onChange={(event) => {
-                onParticipantsChange(
-                  event.target.checked
-                    ? [...participantIds, user.id]
-                    : participantIds.filter((id) => id !== user.id),
-                );
-              }}
-            />
-            {user.name}
-          </label>
-        ))}
-        {users.length === 0 && <p>No hay otros perfiles disponibles.</p>}
-      </fieldset>
       <label className="field">
         <span>Nombre para guardar (opcional)</span>
         <input
@@ -808,22 +691,6 @@ function Upload({
   );
 }
 
-const CRITERION_LABELS: Record<string, string> = {
-  restriccionesDuras: "Restricciones duras",
-  prioridad: "Prioridad de materias",
-  creditos: "Créditos",
-  almuerzo: "Almuerzo libre",
-  huecos: "Huecos",
-  franja: "Franja horaria",
-  diasLibres: "Días libres",
-  profesor: "Profesor preferido",
-  amigos: "Amigos",
-};
-
-function criterionLabel(name: string) {
-  return CRITERION_LABELS[name] ?? name;
-}
-
 const PAGINA_DE_HORARIOS = 50;
 
 function ScheduleCards({
@@ -841,14 +708,15 @@ function ScheduleCards({
   nivel: number;
   savedIndices: Set<string>;
   savingIndex: string | null;
-  onSave: (key: string, schedule: HorarioVista) => void;
-  onCalendar: (item: ScheduleView) => void;
+  onSave: (key: string, item: ScheduleView, schedule: HorarioVista) => void;
+  onCalendar: (item: ScheduleView, key: string, schedule: HorarioVista) => void;
   indexOffset?: number;
 }) {
   // Con muchos horarios no se dibujan todos de una vez: se muestran por tandas, y el
   // detalle de cada uno se arma aquí con el catálogo del archivo (el servidor solo manda ids).
   const [visibles, setVisibles] = useState(PAGINA_DE_HORARIOS);
   const indice = datosDeFuente(source)?.indice ?? null;
+  const valid = isValidLevel(nivel);
   const detallados = indice
     ? schedules.slice(0, visibles).map((horario) => vistaDeCompacto(horario, indice))
     : [];
@@ -858,12 +726,17 @@ function ScheduleCards({
         const key = `${indexOffset}-${schedule.id}`;
         const item: ScheduleView = { title: schedule.name, level: nivel, schedule, source };
         const saved = savedIndices.has(key);
+        // Por qué no es válido (solo se calcula para los horarios que se ven).
+        const validez = valid ? null : validezDeHorario(schedule, source, nivel);
         return (
-          <article className="schedule-card" key={key}>
+          <article className={`schedule-card ${valid ? "" : "schedule-invalid"}`} key={key}>
             <div className="schedule-top">
-              <h2>{schedule.name}</h2>
+              <h2>
+                {schedule.name} {!valid && <InvalidBadge />}
+              </h2>
               <span className="credit-pill">{scheduleSize(item)}</span>
             </div>
+            <FailureList validez={validez} />
             <div className="omitted">
               <strong>Materias omitidas:</strong>
               {schedule.omitidas.length === 0 ? (
@@ -881,17 +754,15 @@ function ScheduleCards({
               )}
             </div>
             <div className="actions">
-              <Button primary icon="calendar" onClick={() => onCalendar(item)}>
+              <Button primary icon="calendar" onClick={() => onCalendar(item, key, schedule)}>
                 Ver calendario
               </Button>
-              <Button
-                icon={saved ? "check" : "bookmark"}
-                active={saved}
-                disabled={saved || savingIndex !== null}
-                onClick={() => onSave(key, schedule)}
-              >
-                {saved ? "Guardado" : savingIndex === key ? "Guardando…" : "Guardar"}
-              </Button>
+              <SaveButton
+                saved={saved}
+                saving={savingIndex === key}
+                disabled={savingIndex !== null}
+                onClick={() => onSave(key, item, schedule)}
+              />
               <DownloadButtons item={item} />
             </div>
           </article>
@@ -908,6 +779,38 @@ function ScheduleCards({
   );
 }
 
+function SaveButton({
+  saved,
+  saving,
+  disabled,
+  onClick,
+}: {
+  saved: boolean;
+  saving: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      icon={saved ? "check" : "bookmark"}
+      active={saved}
+      disabled={saved || disabled}
+      onClick={onClick}
+    >
+      {saved ? "Guardado" : saving ? "Guardando…" : "Guardar"}
+    </Button>
+  );
+}
+
+/** Materias altas del perfil que no tienen ningún grupo en el catálogo del archivo. */
+function missingHighCourses(source: unknown) {
+  const instancia = datosDeFuente(source)?.instancia;
+  if (!instancia) return [];
+  return instancia.sinGrupos
+    .filter((m) => m.prioridad === "alta")
+    .map((m) => `${materiaName(source, m.materiaId)} (${m.materiaId})`);
+}
+
 function Generated({
   result,
   source,
@@ -921,100 +824,16 @@ function Generated({
   source: unknown;
   savedIndices: Set<string>;
   savingIndex: string | null;
-  onSave: (key: string, schedule: HorarioVista) => void;
-  onCalendar: (item: ScheduleView) => void;
+  onSave: (key: string, item: ScheduleView, schedule: HorarioVista) => void;
+  onCalendar: (item: ScheduleView, key: string, schedule: HorarioVista) => void;
   onUpload: () => void;
 }) {
-  const ok = result?.estado === "OK";
-  const level = result?.nivelAlcanzado ?? 0;
-  return (
-    <>
-      <div className="page-heading">
-        <h1>Horarios generados</h1>
-        <p>Horarios válidos que encontró el algoritmo para tu archivo.</p>
-      </div>
-      {result ? (
-        <>
-          <section className="summary-card">
-            <div className="metric">
-              <span>Estado</span>
-              <strong>{ok ? "OK" : "Sin horario"}</strong>
-            </div>
-            <div className="metric">
-              <span>Nivel alcanzado</span>
-              <strong>{level < 0 ? "—" : level}</strong>
-            </div>
-            <div className="metric">
-              <span>Horarios válidos</span>
-              <strong>
-                {result.horarios.length}
-                {result.truncado ? "+" : ""}
-              </strong>
-            </div>
-            <div className="criteria">
-              <span>Criterios activos</span>
-              <div>
-                {result.criteriosActivos.length === 0 && <em>Ninguno</em>}
-                {result.criteriosActivos.map((name) => (
-                  <em key={name}>{criterionLabel(name)}</em>
-                ))}
-              </div>
-            </div>
-          </section>
-          {!ok && (
-            <section className="warning-card" role="status">
-              <strong>No hay horarios que cumplan todos los criterios</strong>
-              {result.motivo && <p>{result.motivo}</p>}
-              {result.criteriosNoCumplidos.length > 0 && (
-                <p>
-                  <b>Criterios no cumplidos:</b>{" "}
-                  {result.criteriosNoCumplidos.map(criterionLabel).join(", ")}. El primero es el que
-                  impidió avanzar; los demás no los cumple ninguno de los horarios del nivel
-                  alcanzado.
-                </p>
-              )}
-            </section>
-          )}
-          {result.truncado && (
-            <p className="footnote">
-              Se pidió un límite de horarios y hay más que no se listan: solo aparecen los primeros
-              encontrados.
-            </p>
-          )}
-          <div className="actions result-downloads">
-            <ResultDownloads result={result} source={source} />
-          </div>
-          {ok && (
-            <ScheduleCards
-              schedules={result.horarios}
-              source={source}
-              nivel={level}
-              savedIndices={savedIndices}
-              savingIndex={savingIndex}
-              onSave={onSave}
-              onCalendar={onCalendar}
-            />
-          )}
-          {!ok && result.horariosNivelAlcanzado.length > 0 && (
-            <>
-              <h2 className="subheading">
-                Mejores horarios hasta el nivel {level} ({result.horariosNivelAlcanzado.length}
-                {result.truncado ? "+" : ""})
-              </h2>
-              <ScheduleCards
-                schedules={result.horariosNivelAlcanzado}
-                source={source}
-                nivel={level}
-                indexOffset={1}
-                savedIndices={savedIndices}
-                savingIndex={savingIndex}
-                onSave={onSave}
-                onCalendar={onCalendar}
-              />
-            </>
-          )}
-        </>
-      ) : (
+  if (!result) {
+    return (
+      <>
+        <div className="page-heading">
+          <h1>Horarios generados</h1>
+        </div>
         <div className="schedule-list">
           <p>Sube el JSON de un estudiante para generar horarios.</p>
           <div>
@@ -1023,6 +842,135 @@ function Generated({
             </Button>
           </div>
         </div>
+      </>
+    );
+  }
+
+  const ok = result.estado === "OK";
+  const level = result.nivelAlcanzado ?? -1;
+  const partial = result.horariosNivelAlcanzado;
+  const missing = ok ? [] : missingHighCourses(source);
+  const plus = result.truncado ? "+" : "";
+  return (
+    <>
+      <div className="page-heading">
+        <h1>Horarios generados</h1>
+        <p>Resultado del algoritmo para tu archivo.</p>
+      </div>
+      <section className="summary-card">
+        <div className="metric">
+          <span>Estado</span>
+          <strong className={ok ? "" : "metric-warning metric-text"}>
+            {ok ? "OK" : "Sin horario válido"}
+          </strong>
+        </div>
+        <div className="metric">
+          <span>Horarios válidos</span>
+          <strong className={ok ? "" : "metric-zero"}>
+            {result.horarios.length}
+            {ok ? plus : ""}
+          </strong>
+        </div>
+        {!ok && (
+          <>
+            <div className="metric">
+              <span>Horarios que no cumplen todo</span>
+              <strong className="metric-warning">
+                {partial.length}
+                {plus}
+              </strong>
+            </div>
+            <div className="metric">
+              <span>Cumple hasta el nivel</span>
+              <strong className="metric-warning">
+                {level < 0 ? (
+                  "—"
+                ) : (
+                  <>
+                    {level} <small>de {NIVEL_MAXIMO}</small>
+                  </>
+                )}
+              </strong>
+            </div>
+          </>
+        )}
+        <div className="criteria">
+          <span>Criterios activos</span>
+          <div>
+            {result.criteriosActivos.length === 0 && <em>Ninguno</em>}
+            {result.criteriosActivos.map((name) => (
+              <em key={name}>{etiquetaDeCriterio(name)}</em>
+            ))}
+          </div>
+        </div>
+      </section>
+      {!ok && missing.length > 0 && (
+        <section className="warning-card warning-strong" role="status">
+          <strong>⚠ {result.motivo}</strong>
+          {partial.length > 0 && (
+            <p>
+              Abajo están los horarios que se pueden armar con las demás materias. No son válidos
+              porque les falta una materia alta.
+            </p>
+          )}
+        </section>
+      )}
+      {!ok && missing.length === 0 && (
+        <section className="warning-card" role="status">
+          <strong>No hay horarios que cumplan todos tus criterios</strong>
+          {result.motivo && <p>{result.motivo}</p>}
+          {result.criteriosNoCumplidos.length > 0 && (
+            <p>
+              <b>Criterios no cumplidos:</b>{" "}
+              {result.criteriosNoCumplidos.map(etiquetaDeCriterio).join(", ")}. El primero es el
+              que impidió avanzar; los demás no los cumple ninguno de los horarios de abajo.
+            </p>
+          )}
+        </section>
+      )}
+      {result.truncado && (
+        <p className="footnote">
+          Se pidió un límite de horarios y hay más que no se listan: solo aparecen los primeros
+          encontrados.
+        </p>
+      )}
+      <div className="actions result-downloads">
+        <ResultDownloads result={result} source={source} />
+      </div>
+      {ok && (
+        <ScheduleCards
+          schedules={result.horarios}
+          source={source}
+          nivel={NIVEL_MAXIMO}
+          savedIndices={savedIndices}
+          savingIndex={savingIndex}
+          onSave={onSave}
+          onCalendar={onCalendar}
+        />
+      )}
+      {!ok && partial.length > 0 && (
+        <>
+          <h2 className="subheading subheading-warning">
+            ⚠ Horarios que NO cumplen todos tus criterios ({partial.length}
+            {plus})
+          </h2>
+          <p className="subnote">
+            {missing.length > 0
+              ? `Les falta la materia alta ${missing.join(", ")}.`
+              : `Cumplen hasta el nivel ${Math.max(level, 0)} de ${NIVEL_MAXIMO}.`}{" "}
+            Puedes verlos o guardarlos, pero no son horarios válidos.
+          </p>
+          <ScheduleCards
+            schedules={partial}
+            source={source}
+            nivel={Math.max(level, 0)}
+            indexOffset={1}
+            savedIndices={savedIndices}
+            savingIndex={savingIndex}
+            onSave={onSave}
+            onCalendar={onCalendar}
+          />
+        </>
       )}
     </>
   );
@@ -1049,6 +997,54 @@ function ResultDownloads({ result, source }: { result: RespuestaGeneracion; sour
   );
 }
 
+/** Diálogo para guardar un horario NO válido: dice qué no cumple y pide confirmación. */
+function ConfirmInvalidSave({
+  item,
+  onCancel,
+  onConfirm,
+}: {
+  item: ScheduleView;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const validez = validezDeHorario(item.schedule, item.source, item.level);
+  const failures = validez?.incumplimientos.map(failureText) ?? [];
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+  return (
+    <div className="dialog-overlay" role="presentation" onClick={onCancel}>
+      <div
+        className="dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="confirm-title">⚠ ¿Guardar un horario no válido?</h2>
+        <p>
+          Este horario no cumple{" "}
+          <b>{failures.length > 0 ? failures.join("; ") : "todos tus criterios"}</b>. Cumple hasta
+          el nivel {item.level} de {NIVEL_MAXIMO}.
+        </p>
+        <p>¿Guardar de todos modos?</p>
+        <div className="actions dialog-actions">
+          <Button autoFocus onClick={onCancel}>
+            Cancelar
+          </Button>
+          <Button warning onClick={onConfirm}>
+            Guardar de todos modos
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Saved({
   userId,
   onUpload,
@@ -1063,9 +1059,7 @@ function Saved({
 
   useEffect(() => {
     const controller = new AbortController();
-    api<{ schedules: SavedSchedule[] }>(`/api/schedules?userId=${encodeURIComponent(userId)}`, {
-      signal: controller.signal,
-    })
+    api<{ schedules: SavedSchedule[] }>("/api/schedules", { signal: controller.signal })
       .then(({ schedules }) => setSchedules(schedules))
       .catch((cause) => {
         if (!controller.signal.aborted) setError(message(cause));
@@ -1078,7 +1072,7 @@ function Saved({
       <div className="title-row">
         <div className="page-heading">
           <h1>Mis horarios guardados</h1>
-          <p>Consulta tus horarios y los que compartieron contigo.</p>
+          <p>Los horarios que decidiste conservar.</p>
         </div>
         <Button primary icon="upload" onClick={onUpload}>
           Subir JSON
@@ -1107,24 +1101,19 @@ function Saved({
             <article className="saved-card" key={record.id}>
               <div>
                 <h2>{record.title}</h2>
-                <span className="level-pill">Nivel alcanzado: {record.level}</span>
+                {isValidLevel(record.level) ? (
+                  <span className="badge-valid">✓ Válido</span>
+                ) : (
+                  <span className="badge-novalid">
+                    ⚠ No válido · cumple hasta nivel {record.level}
+                  </span>
+                )}
                 <p className="saved-details">
                   {new Date(record.created_at).toLocaleDateString("es-CO", {
                     dateStyle: "long",
                     timeZone: "America/Bogota",
                   })}
-                  {" · "}
-                  {record.owner_name}
                 </p>
-                {record.participants.some(({ role }) => role === "participant") && (
-                  <p className="saved-details">
-                    Participantes:{" "}
-                    {record.participants
-                      .filter(({ role }) => role === "participant")
-                      .map(({ name }) => name)
-                      .join(", ")}
-                  </p>
-                )}
               </div>
               <div className="actions">
                 <Button primary icon="calendar" onClick={() => onCalendar(item)}>
@@ -1143,13 +1132,47 @@ function Saved({
 const days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const colors = ["blue", "green", "yellow", "purple"];
 
-function Calendar({ item, onBack }: { item: ScheduleView; onBack: () => void }) {
+/** Etiquetas de los criterios que rompe una sesión del calendario (vacío si no rompe ninguno). */
+function sessionFailures(
+  validez: Validez | null,
+  sectionId: string,
+  meeting: { day: string; startMinute: number; endMinute: number },
+) {
+  if (!validez) return [];
+  return validez.incumplimientos
+    .filter((item) =>
+      item.responsables.some((r) =>
+        r.sesion
+          ? r.grupoId === sectionId &&
+            DIAS.indexOf(r.sesion.dia) + 1 === Number(meeting.day) &&
+            r.sesion.inicio === meeting.startMinute &&
+            r.sesion.fin === meeting.endMinute
+          : r.grupoId === sectionId,
+      ),
+    )
+    .map((item) => etiquetaDeCriterio(item.criterio));
+}
+
+function Calendar({
+  item,
+  onBack,
+  save,
+}: {
+  item: ScheduleView;
+  onBack: () => void;
+  /** Solo cuando el calendario se abrió desde los horarios generados. */
+  save?: { saved: boolean; saving: boolean; disabled: boolean; onClick: () => void };
+}) {
   const catalog = catalogEntries(item.source);
+  const valid = isValidLevel(item.level);
+  const validez = valid ? null : validezDeHorario(item.schedule, item.source, item.level);
+  const failures = validez?.incumplimientos.map(failureText) ?? [];
   const sessions = item.schedule.courses.flatMap((course, index) =>
     course.meetings.map((meeting) => ({
       ...meeting,
       course,
       color: colors[index % colors.length],
+      failures: sessionFailures(validez, course.sectionId, meeting),
     })),
   );
   const startHour = Math.min(7, ...sessions.map(({ startMinute }) => Math.floor(startMinute / 60)));
@@ -1165,15 +1188,32 @@ function Calendar({ item, onBack }: { item: ScheduleView; onBack: () => void }) 
       </button>
       <div className="calendar-title">
         <div>
-          <h1>{item.title}</h1>
+          <h1>
+            {item.title} {!valid && <InvalidBadge />}
+          </h1>
           <p>
-            {scheduleSize(item)} · Nivel alcanzado: {item.level}
+            {scheduleSize(item)} ·{" "}
+            {valid
+              ? `Válido · cumple los niveles 0 a ${NIVEL_MAXIMO}`
+              : `Cumple hasta el nivel ${item.level} de ${NIVEL_MAXIMO}`}
           </p>
         </div>
         <div className="actions">
+          {save && <SaveButton {...save} />}
           <DownloadButtons item={item} fullLabel />
         </div>
       </div>
+      {!valid && (
+        <div className="invalid-banner" role="alert">
+          <span aria-hidden="true">⚠</span>
+          <div>
+            <strong>Horario NO válido:</strong> no cumple{" "}
+            {failures.length > 0 ? failures.join("; ") : "todos tus criterios"}.
+            {sessions.some((session) => session.failures.length > 0) &&
+              " Los bloques marcados son los que incumplen."}
+          </div>
+        </div>
+      )}
       {sessions.length === 0 ? (
         <p className="footnote">Este horario no tiene sesiones registradas.</p>
       ) : (
@@ -1201,21 +1241,25 @@ function Calendar({ item, onBack }: { item: ScheduleView; onBack: () => void }) 
                       ({ courseId }) => courseId === session.course.courseId,
                     )?.profesor;
                     const interval = `${formatTime(session.startMinute)}–${formatTime(session.endMinute)}`;
+                    const bad = session.failures.length > 0;
                     return (
                       <div
-                        className={`class-block ${session.color}`}
+                        className={`class-block ${session.color} ${bad ? "class-block-bad" : ""}`}
                         key={`${session.course.courseId}-${session.startMinute}-${session.endMinute}`}
                         style={{
                           top: `${((session.startMinute - startHour * 60) / minutes) * 100}%`,
                           height: `${((session.endMinute - session.startMinute) / minutes) * 100}%`,
                         }}
-                        title={`${name} · Grupo ${session.course.sectionId}${professor ? ` · ${professor}` : ""} · ${interval}`}
+                        title={`${name} · Grupo ${session.course.sectionId}${professor ? ` · ${professor}` : ""} · ${interval}${bad ? ` · Incumple: ${session.failures.join(", ")}` : ""}`}
                       >
                         <strong>{name}</strong>
                         <span>
                           Grupo {session.course.sectionId} · {interval}
                         </span>
                         {professor && <span>{professor}</span>}
+                        {bad && (
+                          <em className="block-flag">⚠ Incumple: {session.failures.join(", ")}</em>
+                        )}
                       </div>
                     );
                   })}
@@ -1277,7 +1321,7 @@ function downloadText(fileName: string, content: string) {
 function DownloadButtons({ item, fullLabel = false }: { item: ScheduleView; fullLabel?: boolean }) {
   function download(extension: "json" | "txt") {
     // Se arma al pulsar el botón, con el mismo exportador del dominio que usan las pruebas.
-    let content = textoDeHorario(extension, item.schedule, item.source);
+    let content = textoDeHorario(extension, item.schedule, item.source, item.level);
     if (content === null) {
       // Archivo de origen ilegible (horarios guardados muy antiguos): texto simple de respaldo.
       const catalog = catalogEntries(item.source);
@@ -1288,10 +1332,19 @@ function DownloadButtons({ item, fullLabel = false }: { item: ScheduleView; full
             `  ${days[Number(session.day) - 1]} ${formatTime(session.startMinute)}–${formatTime(session.endMinute)}`,
         ),
       ]);
+      const mark = isValidLevel(item.level)
+        ? []
+        : [`NO VÁLIDO: cumple hasta el nivel ${item.level} de ${NIVEL_MAXIMO}`];
       content =
         extension === "json"
-          ? JSON.stringify(item.schedule, null, 2)
-          : [item.title, ...lines].join("\n");
+          ? JSON.stringify(
+              isValidLevel(item.level)
+                ? item.schedule
+                : { validez: "NO VÁLIDO", cumpleHastaNivel: item.level, ...item.schedule },
+              null,
+              2,
+            )
+          : [item.title, ...mark, ...lines].join("\n");
     }
     downloadText(`${item.title}.${extension}`, content);
   }
@@ -1334,27 +1387,32 @@ function message(error: unknown) {
 
 function SignedIn({
   user,
-  users,
   setUser,
   accounts,
 }: {
   user: User;
-  users: User[];
   setUser: (user: User | null) => void;
-  accounts?: AccountControls;
+  accounts: AccountControls;
 }) {
-  const [view, setView] = useState<Exclude<View, "auth">>("home");
+  // Tras iniciar sesión se llega a "Mis horarios guardados", que es el inicio.
+  const [view, setView] = useState<Exclude<View, "auth">>("saved");
   const [file, setFile] = useState<ValidatedFile | null>(null);
   const [result, setResult] = useState<RespuestaGeneracion | null>(null);
-  const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [title, setTitle] = useState("");
   const [savedIndices, setSavedIndices] = useState(new Set<string>());
   const [savingIndex, setSavingIndex] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState("");
+  const [confirming, setConfirming] = useState<{
+    key: string;
+    item: ScheduleView;
+    schedule: HorarioVista;
+  } | null>(null);
   const [calendar, setCalendar] = useState<{
     item: ScheduleView;
     back: "generated" | "saved";
+    /** Para poder guardar desde el calendario de un horario generado. */
+    generated?: { key: string; schedule: HorarioVista };
   } | null>(null);
 
   function navigate(next: View) {
@@ -1366,8 +1424,12 @@ function SignedIn({
     setView(next);
   }
 
-  function openCalendar(item: ScheduleView, back: "generated" | "saved") {
-    setCalendar({ item, back });
+  function openCalendar(
+    item: ScheduleView,
+    back: "generated" | "saved",
+    generated?: { key: string; schedule: HorarioVista },
+  ) {
+    setCalendar({ item, back, generated });
     navigate("calendar");
   }
 
@@ -1386,16 +1448,21 @@ function SignedIn({
     }
   }
 
-  async function save(key: string, schedule: HorarioVista) {
+  /** Un horario válido se guarda directo; uno NO válido pide confirmación primero. */
+  function requestSave(key: string, item: ScheduleView, schedule: HorarioVista) {
+    if (savingIndex !== null || savedIndices.has(key)) return;
+    if (isValidLevel(item.level)) void save(key, item, schedule);
+    else setConfirming({ key, item, schedule });
+  }
+
+  async function save(key: string, item: ScheduleView, schedule: HorarioVista) {
     if (!file || !result || savingIndex !== null || savedIndices.has(key)) return;
     setStatus("");
     setSavingIndex(key);
     try {
       await post("/api/schedules", {
-        ownerUserId: user.id,
-        participantIds,
         title: title.trim() || schedule.name,
-        level: Math.max(result.nivelAlcanzado ?? 0, 0),
+        level: Math.max(item.level, 0),
         sourceJson: file.source,
         schedule,
       });
@@ -1413,8 +1480,7 @@ function SignedIn({
         view={view}
         setView={navigate}
         user={user}
-        users={users}
-        setUser={setUser}
+        hasResult={result !== null}
         accounts={accounts}
       />
       <main className={`main ${view === "calendar" ? "calendar-page" : ""}`}>
@@ -1423,12 +1489,8 @@ function SignedIn({
             {status}
           </p>
         )}
-        {view === "home" && <Home setView={navigate} user={user} />}
         {view === "upload" && (
           <Upload
-            users={users.filter((item) => item.id !== user.id)}
-            participantIds={participantIds}
-            onParticipantsChange={setParticipantIds}
             title={title}
             onTitleChange={setTitle}
             file={file}
@@ -1440,7 +1502,7 @@ function SignedIn({
               setStatus("");
             }}
             onGenerate={() => void generate()}
-            onCancel={() => navigate("home")}
+            onCancel={() => navigate("saved")}
           />
         )}
         {view === "generated" && (
@@ -1449,9 +1511,11 @@ function SignedIn({
             source={file?.source}
             savingIndex={savingIndex}
             savedIndices={savedIndices}
-            onSave={(key, schedule) => void save(key, schedule)}
+            onSave={requestSave}
             onUpload={() => navigate("upload")}
-            onCalendar={(item) => openCalendar(item, "generated")}
+            onCalendar={(item, key, schedule) =>
+              openCalendar(item, "generated", { key, schedule })
+            }
           />
         )}
         {view === "saved" && (
@@ -1462,9 +1526,36 @@ function SignedIn({
           />
         )}
         {view === "calendar" && calendar && (
-          <Calendar item={calendar.item} onBack={() => navigate(calendar.back)} />
+          <Calendar
+            item={calendar.item}
+            onBack={() => navigate(calendar.back)}
+            save={
+              calendar.generated && {
+                saved: savedIndices.has(calendar.generated.key),
+                saving: savingIndex === calendar.generated.key,
+                disabled: savingIndex !== null,
+                onClick: () =>
+                  requestSave(
+                    calendar.generated!.key,
+                    calendar.item,
+                    calendar.generated!.schedule,
+                  ),
+              }
+            }
+          />
         )}
       </main>
+      {confirming && (
+        <ConfirmInvalidSave
+          item={confirming.item}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            const { key, item, schedule } = confirming;
+            setConfirming(null);
+            void save(key, item, schedule);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1479,33 +1570,17 @@ function friendlyAuthError(error: { message: string }) {
 }
 
 export default function ScheduleWorkspace() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [status, setStatus] = useState(authEnabled ? "" : "Cargando perfiles de prueba…");
+  return authEnabled ? <Workspace /> : <MissingConfig />;
+}
+
+function Workspace() {
+  const [status, setStatus] = useState("");
   const [user, setUserState] = useState<User | null>(null);
   const [cuentas, setCuentas] = useState<CuentaRecordada[]>([]);
   const [adding, setAdding] = useState(false);
 
-  async function loadUsers(signal?: AbortSignal) {
-    const { users } = await api<{ users: User[] }>("/api/users", { signal });
-    setUsers(users);
-    return users;
-  }
-
-  // Modo local: los usuarios de demostración se cargan al abrir la página.
+  // Recupera la sesión guardada de Supabase y mantiene el token al día.
   useEffect(() => {
-    if (authEnabled) return;
-    const controller = new AbortController();
-    loadUsers(controller.signal)
-      .then((users) => setStatus(users.length ? "" : "No hay perfiles de prueba disponibles."))
-      .catch((error) => {
-        if (!controller.signal.aborted) setStatus(message(error));
-      });
-    return () => controller.abort();
-  }, []);
-
-  // Login real: recupera la sesión guardada y mantiene el token al día.
-  useEffect(() => {
-    if (!authEnabled) return;
     const supabase = supabaseBrowser();
     let active = true;
 
@@ -1517,7 +1592,6 @@ export default function ScheduleWorkspace() {
       }
       try {
         const { user } = await api<{ user: User }>("/api/me");
-        await loadUsers();
         if (active) setUserState(user);
       } catch (error) {
         if (active) {
@@ -1557,7 +1631,7 @@ export default function ScheduleWorkspace() {
   }, []);
 
   function setUser(next: User | null) {
-    if (next === null && authEnabled) {
+    if (next === null) {
       // Cierra solo esta sesión (scope local) y deja las demás cuentas recordadas intactas.
       if (user) setCuentas(quitarCuenta(user.id));
       void supabaseBrowser().auth.signOut({ scope: "local" });
@@ -1586,7 +1660,6 @@ export default function ScheduleWorkspace() {
     accessToken = data.session.access_token;
     try {
       const { user: next } = await api<{ user: User }>("/api/me");
-      await loadUsers();
       setAdding(false);
       setUserState(next);
     } catch (error) {
@@ -1619,7 +1692,6 @@ export default function ScheduleWorkspace() {
     accessToken = session.access_token;
     try {
       const { user } = await api<{ user: User }>("/api/me");
-      await loadUsers();
       setAdding(false);
       setUserState(user);
       return "";
@@ -1632,34 +1704,27 @@ export default function ScheduleWorkspace() {
     <SignedIn
       key={user.id}
       user={user}
-      users={users}
       setUser={setUser}
-      accounts={
-        authEnabled
-          ? {
-              list: cuentas.some((c) => c.id === user.id)
-                ? cuentas
-                : [
-                    ...cuentas,
-                    {
-                      id: user.id,
-                      name: user.name,
-                      email: user.email,
-                      accessToken: "",
-                      refreshToken: "",
-                    },
-                  ],
-              onSwitch: switchAccount,
-              onAdd: () => setAdding(true),
-            }
-          : undefined
-      }
+      accounts={{
+        list: cuentas.some((c) => c.id === user.id)
+          ? cuentas
+          : [
+              ...cuentas,
+              {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                accessToken: "",
+                refreshToken: "",
+              },
+            ],
+        onSwitch: switchAccount,
+        onAdd: () => setAdding(true),
+      }}
     />
   ) : (
     <Auth
-      users={users}
       status={status}
-      onLogin={setUser}
       onCredentials={credentials}
       onCancel={user ? () => setAdding(false) : undefined}
     />
