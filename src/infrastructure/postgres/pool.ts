@@ -5,20 +5,18 @@ declare global {
   var complexSchedulePool: Pool | undefined;
 }
 
-const connectionString =
-  process.env.DATABASE_URL ??
-  "postgres://complex_schedule:local_dev_password@localhost:5432/complex_schedule";
-
-// Supabase exige conexión cifrada; el PostgreSQL local de Docker no la usa.
-const usaSupabase = /supabase\.(com|co)/.test(connectionString);
-
+/**
+ * Conexión a Supabase Postgres. DATABASE_URL es la cadena del "Session pooler" de
+ * Supabase (ver docs/supabase.md); si falta, la primera consulta falla y la API
+ * responde con un error de base de datos. Supabase exige conexión cifrada.
+ */
 export const pool =
   globalThis.complexSchedulePool ??
   new Pool({
-    connectionString,
+    connectionString: process.env.DATABASE_URL,
     max: 10,
     idleTimeoutMillis: 30_000,
-    ssl: usaSupabase ? { rejectUnauthorized: false } : undefined,
+    ssl: { rejectUnauthorized: false },
   });
 
 if (process.env.NODE_ENV !== "production") globalThis.complexSchedulePool = pool;

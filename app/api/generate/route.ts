@@ -17,7 +17,10 @@ export const runtime = "nodejs";
  * Un archivo inválido no es un error HTTP: es un resultado con estado ARCHIVO_INVALIDO.
  */
 export async function POST(request: Request) {
-  if (authEnabled && !(await usuarioAutenticado(request))) {
+  if (!authEnabled) {
+    return NextResponse.json({ error: "El inicio de sesión no está configurado." }, { status: 503 });
+  }
+  if (!(await usuarioAutenticado(request))) {
     return NextResponse.json({ error: "Inicia sesión para continuar." }, { status: 401 });
   }
   const body = (await request.json().catch(() => null)) as {

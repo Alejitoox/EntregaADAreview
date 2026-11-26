@@ -3,8 +3,8 @@
  * navegador): la URL del proyecto y la clave *publishable* (o anon). Nunca se
  * pone aquí la clave de servicio ni la contraseña de la base de datos.
  *
- * Si no están definidas, la aplicación funciona en "modo local": sin login real,
- * con el selector de usuarios de demostración y PostgreSQL local.
+ * Son obligatorias: si faltan, la aplicación muestra un aviso de configuración y
+ * las rutas de la API responden 503. No hay modo local sin Supabase.
  */
 export const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 export const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
