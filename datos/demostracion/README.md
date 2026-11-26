@@ -23,7 +23,7 @@ k + 1.
 | Archivo | Qué cambia | Resultado esperado |
 | --- | --- | --- |
 | `01-valido-un-solo-horario.json` | Nada: un grupo por materia. | **OK**, 1 horario válido con las 6 materias (15 créditos). |
-| `02-valido-varios-horarios-ordenados-por-profesor.json` | Grupos alternos de Ecuaciones, Algoritmos y Web, con profesores preferidos. Es el mismo archivo de "Usar JSON de ejemplo". | **OK**, 8 horarios válidos. El Horario 1 es el de los profesores preferidos (el horario base). |
+| `02-valido-varios-horarios-ordenados-por-profesor.json` | Grupos alternos de Ecuaciones, Algoritmos y Web, con profesores preferidos. Es el que carga el botón "JSON exitoso". | **OK**, 8 horarios válidos. El Horario 1 es el de los profesores preferidos (el horario base). |
 | `03-nivel-0-materia-alta-sin-grupos.json` | Se pide Cálculo Vectorial como alta, pero no tiene grupos. | **SIN_HORARIO**, cumple hasta el nivel 0. Aviso "La materia alta Cálculo Vectorial (CV110) no se pudo inscribir porque no tiene grupos en el catálogo" y 1 horario NO VÁLIDO con las otras seis materias. |
 | `04-nivel-0-dos-materias-altas-se-cruzan.json` | Ecuaciones (alta) pasa a 08:00–10:00 y se cruza con Introducción a la IA (alta). Solo se piden las tres altas. | **SIN_HORARIO**, cumple hasta el nivel 0. Motivo: una materia alta no cabe. 5 horarios NO VÁLIDOS (les falta una alta). |
 | `05-nivel-1-no-alcanza-creditos-minimos.json` | Mínimo de 18 créditos (todas suman 15). | **SIN_HORARIO**, cumple hasta el nivel 1. No cumple: Créditos (15 créditos; mínimo 18). |
@@ -40,4 +40,13 @@ k + 1.
 | `16-invalido-varios-errores.json` | Día "domingo", sesión con inicio mayor que fin, grupo repetido, profesor inexistente, mínimo de créditos mayor que el máximo, prioridad "urgente". | **ARCHIVO_INVALIDO** con 6 errores, agrupados por bloque. No se ejecuta el algoritmo. |
 
 Para usarlos: en la app, **Subir JSON → Elegir archivo** y luego **Ejecutar algoritmo**.
+
+En **Subir JSON** también hay tres botones que cargan copias de estos archivos (están
+en `public/ejemplos/`):
+
+| Botón | Archivo |
+| --- | --- |
+| JSON exitoso | `02-valido-varios-horarios-ordenados-por-profesor.json` |
+| Falla en nivel 0 (altas se cruzan) | `04-nivel-0-dos-materias-altas-se-cruzan.json` |
+| Llega hasta el nivel 5 | `09-nivel-5-clase-en-dia-libre.json` |
 `pnpm test` comprueba que cada archivo siga dando el resultado de esta tabla.

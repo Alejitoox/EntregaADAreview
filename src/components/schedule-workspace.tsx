@@ -535,6 +535,13 @@ function ValidationErrors({ errors }: { errors: ErrorValidacion[] }) {
   );
 }
 
+/** Archivos de prueba servidos desde public/ejemplos (copias de datos/demostracion). */
+const SAMPLE_FILES = [
+  { file: "exitoso.json", label: "JSON exitoso" },
+  { file: "falla-nivel-0-altas-se-cruzan.json", label: "Falla en nivel 0 (altas se cruzan)" },
+  { file: "llega-hasta-nivel-5.json", label: "Llega hasta el nivel 5" },
+];
+
 function Upload({
   title,
   onTitleChange,
@@ -631,14 +638,18 @@ function Upload({
         </Button>
       </section>
       <div className="sample-upload">
-        <Button
-          disabled={busy || validating}
-          onClick={() =>
-            void chooseFile("horario-ejemplo.json", () => api("/horario-ejemplo.json"))
-          }
-        >
-          Usar JSON de ejemplo
-        </Button>
+        <span>Probar con un archivo de ejemplo:</span>
+        <div className="actions">
+          {SAMPLE_FILES.map((sample) => (
+            <Button
+              key={sample.file}
+              disabled={busy || validating}
+              onClick={() => void chooseFile(sample.file, () => api(`/ejemplos/${sample.file}`))}
+            >
+              {sample.label}
+            </Button>
+          ))}
+        </div>
       </div>
       {validating && <p role="status">Validando archivo…</p>}
       {error && (

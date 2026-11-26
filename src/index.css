@@ -863,8 +863,20 @@
   font-size: 14px;
 }
 
-.saved-details, .sample-upload {
+.saved-details {
   margin-top: 12px;
+}
+
+.sample-upload {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.sample-upload > span {
+  color: #667080;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .form-error {

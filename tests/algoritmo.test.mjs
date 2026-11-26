@@ -1239,9 +1239,12 @@ test("los archivos de demostración dan el resultado que dice su README", async 
   const sinCupos = ejecutar(leer("14-grupo-sin-cupos-se-usa-el-otro")).resultado.horarios[0];
   assert.ok(sinCupos.asignaciones.some((a) => a.grupoId === "ED201-02"));
   assert.equal(ejecutar(leer("16-invalido-varios-errores")).resultado.errores.length, 6);
-  // El JSON de ejemplo de la app es el archivo 02.
-  const ejemplo = readFileSync(new URL("../public/horario-ejemplo.json", import.meta.url), "utf8");
-  assert.equal(ejemplo, leer("02-valido-varios-horarios-ordenados-por-profesor"));
+  // Los tres botones de prueba de la app cargan copias de los archivos 02, 04 y 09.
+  const publico = (nombre) => readFileSync(new URL(`../public/ejemplos/${nombre}.json`, import.meta.url), "utf8");
+  assert.equal(publico("exitoso"), leer("02-valido-varios-horarios-ordenados-por-profesor"));
+  assert.equal(publico("falla-nivel-0-altas-se-cruzan"), leer("04-nivel-0-dos-materias-altas-se-cruzan"));
+  assert.equal(publico("llega-hasta-nivel-5"), leer("09-nivel-5-clase-en-dia-libre"));
+  const ejemplo = publico("exitoso");
   const primero = ejecutar(ejemplo).resultado.horarios[0];
   assert.deepEqual(
     primero.asignaciones.map((a) => a.grupoId).sort(),
